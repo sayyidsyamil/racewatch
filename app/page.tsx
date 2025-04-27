@@ -5,13 +5,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/hooks/use-toast";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
 import { Eye, EyeOff, RefreshCw, Trash2 } from "lucide-react";
 
 const PDF_MAP = {
@@ -176,24 +169,21 @@ export default function Home() {
   const [leaderboardRendah, setLeaderboardRendah] = useState<any[]>([]);
   const [leaderboardMenengah, setLeaderboardMenengah] = useState<any[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
-  const [model, setModel] = useState("gemini-2.5-flash-preview-04-17");
+  const [model, setModel] = useState("gemini-2.5-pro-preview-03-25");
   const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedKey = localStorage.getItem("racewatch_apiKey");
-      const savedModel = localStorage.getItem("racewatch_model");
       if (savedKey) setApiKey(savedKey);
-      if (savedModel) setModel(savedModel);
     }
   }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("racewatch_apiKey", apiKey);
-      localStorage.setItem("racewatch_model", model);
     }
-  }, [apiKey, model]);
+  }, [apiKey]);
 
   async function handleVideoChange(
     e: React.ChangeEvent<HTMLInputElement>,
@@ -216,35 +206,74 @@ export default function Home() {
     if (tab === "rendah") setFileNameRendah(file.name);
     else setFileNameMenengah(file.name);
     try {
-      const [base64Video, base64Pdf] = await Promise.all([
-        toBase64(file),
-        fetchPdfAsBase64(PDF_MAP[tab]),
-      ]);
       const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContentStream({
-        model,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: PROMPT },
-              {
-                inlineData: {
-                  mimeType: "application/pdf",
-                  data: base64Pdf.split(",")[1],
+      let usedModel = "gemini-2.5-pro-preview-03-25";
+      let response;
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+        response = await ai.models.generateContentStream({
+          model: usedModel,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: PROMPT },
+                {
+                  inlineData: {
+                    mimeType: "application/pdf",
+                    data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
+                  },
                 },
-              },
-              {
-                inlineData: {
-                  mimeType: file.type,
-                  data: base64Video.split(",")[1],
+                {
+                  inlineData: {
+                    mimeType: file.type,
+                    data: await toBase64(file).then(base64 => base64.split(",")[1]),
+                  },
                 },
+              ],
+            },
+          ],
+        });
+      } catch (err: any) {
+        let message = err?.message || "Unknown error";
+        if (
+          message.includes("doesn't have a free quota tier") ||
+          message.includes("RESOURCE_EXHAUSTED")
+        ) {
+          // Fallback to Flash for this one request
+          usedModel = "gemini-2.5-flash-preview-04-17";
+          toast({
+            title: "Fallback to Flash",
+            description: "Your API key does not have access to the Pro model. Using Flash model for this request.",
+          });
+          const ai = new GoogleGenAI({ apiKey });
+          response = await ai.models.generateContentStream({
+            model: usedModel,
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: PROMPT },
+                  {
+                    inlineData: {
+                      mimeType: "application/pdf",
+                      data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
+                    },
+                  },
+                  {
+                    inlineData: {
+                      mimeType: file.type,
+                      data: await toBase64(file).then(base64 => base64.split(",")[1]),
+                    },
+                  },
+                ],
               },
             ],
-          },
-        ],
-      });
+          });
+        } else {
+          throw err;
+        }
+      }
       let result = "";
       for await (const chunk of response) {
         result += chunk.text;
@@ -273,12 +302,6 @@ export default function Home() {
       }
     } catch (err: any) {
       let message = err?.message || "Unknown error";
-      if (
-        message.includes("doesn't have a free quota tier") ||
-        message.includes("RESOURCE_EXHAUSTED")
-      ) {
-        message = "The Pro model requires a paid API key. Please use the Flash model for free API keys, or upgrade your API key for Pro access.";
-      }
       toast({ title: "AI Error", description: message });
     }
     setLoading(false);
@@ -287,7 +310,8 @@ export default function Home() {
   async function saveResult(tab: "rendah" | "menengah") {
     const data = tab === "rendah" ? parsedRendah : parsedMenengah;
     const teamName = tab === "rendah" ? fileNameRendah : fileNameMenengah;
-    let modelUsed = model === "gemini-2.5-flash-preview-04-17" ? "Flash" : "Pro";
+    let modelUsed = "Pro";
+    if (data && data.model && data.model === "gemini-2.5-flash-preview-04-17") modelUsed = "Flash";
     if (!data) return;
     if (tab === "rendah") setSavingRendah(true);
     else setSavingMenengah(true);
@@ -385,8 +409,8 @@ export default function Home() {
           Upload your race video and get instant AI-based evaluation and leaderboard.
         </div>
         <div className="w-full flex flex-col gap-4">
-          <label className="font-semibold text-gray-800">API Key & Model</label>
-          <div className="flex flex-col sm:flex-row gap-2 items-stretch">
+          <label className="font-semibold text-gray-800">API Key</label>
+          <div className="flex flex-col gap-2 items-stretch">
             <div className="relative flex-1">
               <Input
                 type={showApiKey ? "text" : "password"}
@@ -405,36 +429,12 @@ export default function Home() {
                 {showApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
-            <Select value={model} onValueChange={setModel}>
-              <SelectTrigger className="w-full sm:w-[320px] border-pink-300 focus:border-pink-500 focus:ring-pink-200 rounded-lg shadow-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="gemini-2.5-flash-preview-04-17">
-                  <div>
-                    <div className="font-semibold">Gemini 2.5 Flash Preview 04-17</div>
-                    <div className="text-xs text-muted-foreground">gemini-2.5-flash-preview-04-17 (Free/Testing, lower quality)</div>
-                  </div>
-                </SelectItem>
-                <SelectItem value="gemini-2.5-pro-preview-03-25">
-                  <div>
-                    <div className="font-semibold">Gemini 2.5 Pro Preview 03-25</div>
-                    <div className="text-xs text-muted-foreground">gemini-2.5-pro-preview-03-25 (Paid/Recommended, higher quality)</div>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
           </div>
-          {model === "gemini-2.5-pro-preview-03-25" && (
-            <div className="text-xs text-pink-600 mt-1">
-              Pro model requires a paid API key. <b>Free API keys will not work!</b>
-            </div>
-          )}
         </div>
         <div className="w-full mt-6 mb-2">
           <div className="p-3 bg-gradient-to-r from-pink-100 via-yellow-100 to-blue-100 border border-pink-200 rounded-xl text-pink-700 text-sm font-semibold flex items-center gap-2 shadow-sm">
             <span>💡</span>
-            <span>Flash is free but only for demo purposes. For real evaluation, always use the Pro model.</span>
+            <span>Pro model is used for all evaluations. If your API key does not have access, the app will fallback to Flash for this request only.</span>
             <span className="ml-auto text-blue-700 underline cursor-pointer" onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank')}>Get your API key</span>
           </div>
         </div>
