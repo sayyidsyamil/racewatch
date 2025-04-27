@@ -5,7 +5,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/hooks/use-toast";
-import { Eye, EyeOff, RefreshCw, Trash2 } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 const PDF_MAP = {
   rendah: "/rendah_rule.pdf",
@@ -27,32 +28,30 @@ async function fetchPdfAsBase64(pdfPath: string): Promise<string> {
   return await toBase64(new File([blob], "map.pdf", { type: "application/pdf" }));
 }
 
-const PROMPT = `You are RaceWatch AI, a robot race judge tasked with analyzing robot performance based on both video and PDF inputs. Your job is to evaluate the race strictly according to the provided rules and map, paying close attention to precise time calculation, conditional checkpoint passage rules, and marker type verification. Your evaluation must generate the specific JSON output confirmed for each provided video example.
+const PROMPT = `"You are RaceWatch AI, a robot race judge tasked with analyzing robot performance based on video and PDF inputs. Your job is to evaluate the race according to the provided rules and track map, paying close attention to accurate time calculation, checkpoint passage rules, and marker verification. Your evaluation should generate specific JSON output for each video example provided.
 
 Evaluation Rules:
 
 Race Track Specifications:
-The track is marked with a black line. The official map (PDF - provided as input) shows star markers as checkpoints.
-Marker Verification: Observe the markers used in the video. They might be stars (matching the PDF) or different shapes/colors (e.g., yellow dots). This observation is crucial for applying the correct rules and comments.
-The blue line is a guide; it is not part of the race path.
-The robot must follow the black line and should not cut corners or deviate significantly, except for valid obstacle avoidance.
+- The race track is marked by a black line. The official map (PDF - provided as input) includes star markers as checkpoints.
+- Marker Verification: Ensure that the markers in the video match the markers in the PDF, either stars or alternative shapes/colors (e.g., yellow dots). This is critical for applying the correct evaluation rules.
+- The blue line on the map is a guide and not part of the race path.
+- The robot must follow the black line. It may deviate only when avoiding obstacles, but it must return to the track as per the rules.
 
 Checkpoints & Scoring:
-The robot must start and finish at the defined start/end points shown in the PDF map.
-The robot cannot reverse direction until after passing the first checkpoint marker it encounters.
-The robot earns 1 point per checkpoint passed (first time only). Total checkpoints (total) are based on the PDF map (4 stars).
-General Passing Rule (Strict): For checkpoints not located near the obstacle zone, a checkpoint is "passed" ONLY when the robot's line-following sensor(s) physically cross over the designated checkpoint marker seen in the video.
-Conditional Passing Rule (Obstacle Zone - Checkpoint 3): This rule applies only to the checkpoint located near the obstacle (typically the 3rd one visited chronologically, bottom-right on the map, verify position using the PDF).
-    Condition A (Star Markers in Video): If the video shows star markers (matching the PDF), apply the Strict Passing Rule: The robot's sensors must physically cross over the star marker after avoiding the obstacle to get the point.
-    Condition B (Dot Markers or Other Non-Star Markers in Video): If the video shows dot markers (or other non-star shapes), apply the Modified Passing Rule: Successfully avoiding the obstacle and rejoining the black line in the same zone (even if slightly past the precise marker location due to the avoidance path) is sufficient to consider this specific checkpoint 'passed'.
-After passing the first checkpoint marker, subsequent markers may be visited in any order allowed by the path.
-The robot must pass through the END point after attempting all required checkpoints. Failure to cross the END line means the run is incomplete.
+- The robot must start and finish at the designated start and end points on the map (PDF).
+- The robot cannot reverse direction before passing its first checkpoint.
+- The robot earns 1 point for each checkpoint passed, counting each checkpoint only once. The total number of checkpoints is 4 (as per the PDF map).
+- Passing Rule: A checkpoint is "passed" ONLY when the robot's line-following sensor physically crosses over the marker seen in the video.
+- Obstacle Zone (Checkpoint 3): This rule applies to the third checkpoint near the obstacle (bottom-right on the map).
+    - The rule is the same for all checkpoints: Successfully avoiding the obstacle and rejoining the black line in the same zone (even slightly past the exact marker due to the avoidance path) counts as passing the checkpoint.
+- The robot must pass the end point after completing the required checkpoints. Failure to cross the end line means the run is incomplete.
 
 Obstacle Rules:
-There is one obstacle (cube) on the course. Check PDF for location.
-The robot may leave the black line to avoid the obstacle, but must return to the same zone (the segment of the track it was on before deviating).
-The robot must not touch the obstacle. Touching incurs a specific comment.
-Crossing nearby lines during the avoidance manoeuvre is permitted, but following them is not.
+- There is one obstacle (a cube) on the course, located as indicated on the PDF.
+- The robot may leave the black line to avoid the obstacle but must return to the same segment of the track after avoiding it.
+- The robot must not touch the obstacle. If the robot touches it, a specific comment will be generated.
+- The robot may cross adjacent lines while avoiding the obstacle, but it must return to following the correct path immediately.
 
 Output Structure:
 Return ONLY a valid JSON object in the following format. Do not include any text before or after the JSON object, and do not use markdown formatting (like \`\`\`json).
@@ -63,7 +62,7 @@ Return ONLY a valid JSON object in the following format. Do not include any text
     "total": 4
   },
   "time": {
-    "start": "mm:ss.xx", //not the video start time but precise tstart time when robot start move follow the race path
+    "start": "mm:ss.xx", // timestamp when the robot begins following the path
     "end": "mm:ss.xx",
     "taken": "ss.xx"
   },
@@ -71,25 +70,24 @@ Return ONLY a valid JSON object in the following format. Do not include any text
 }
 
 Evaluation Considerations & Comment Logic:
-1. Analyze PDF: Identify start/end, path, 4 star checkpoint locations, obstacle position.
-2. Analyze Video:
-   - Determine precise start and end times (mm:ss.xx). Calculate taken time (end-start, in seconds XX.XX).
-   - Identify Marker Type in Video: Crucially note if the video uses stars or dots/other markers.
-   - Track the robot's path meticulously against the PDF map.
-   - Check for obstacle contact.
+1. Analyze the PDF: Identify the start/end points, path, the four star checkpoint locations, and the obstacle position.
+2. Analyze the video:
+   - Determine precise start and end times (mm:ss.xx). Calculate the time taken (end-start, in seconds).
+   - Identify Marker Type in the video: note if the video uses stars or dots/other markers.
+   - Track the robot's path carefully in relation to the PDF map.
+   - Check for contact with the obstacle.
 3. Apply Rules & Score Checkpoints:
-   - For checkpoints 1, 2, and 4 (non-obstacle zone), use the General Passing Rule (Strict).
-   - For checkpoint 3 (obstacle zone), determine if Condition A or B applies based on the Marker Type identified in the video, and apply the corresponding rule (Strict or Modified).
+   - For all checkpoints (1, 2, 3, and 4), the passing rule is the same: The robot must successfully avoid the obstacle and rejoin the black line in the same zone (even slightly past the exact marker due to the avoidance path).
    - Sum the reached checkpoints (X).
-4. Determine Comment: Choose ONE comment based on the first matching condition below:
-   - If the robot does not cross the finish line -> "ROBOT DID NOT COMPLETE COURSE"
-   - If the robot touches the obstacle -> "TOUCHED OBSTACLE"
-   - If checkpoint 3 (obstacle area) was NOT reached or go through AND the applicable rule was Strict Passing (Condition A - i.e., video had stars but robot didn't cross it) -> "OKAY (ROBOT TAK LALU TITIK MARKAH HALANGAN)"
-   - If all 4 checkpoints are reached (using the applicable rules) AND the video markers were stars (matching PDF) -> "PERFECT"
-   - If all 4 checkpoints are reached (using the applicable rules) BUT the video markers were missing (not matching PDF) -> "OKAY (TIADA TITIK MARKAH)"
-   - If none of the above specific conditions are met, provide a brief, accurate, neutral summary of the run (e.g., "Completed course, missed X checkpoints").
+4. Determine Comment: Select ONE comment based on the first matching condition:
+   - If all 4 checkpoints are reached and the video markers match the PDF stars -> "PERFECT"
+  - If the robot touches or hit the obstacle -> "TOUCHED OBSTACLE"
+   - If the obstacle zone checkpoint was not reached (i.e., the robot missed the marker in the obstacle zone) -> "OKAY (ROBOT MISSED CHECKPOINT IN OBSTACLE ZONE)"
+   - If all 4 checkpoints are reached, but the video markers do not match the PDF stars (it could be other shape eg rounded yellow or pink but if its not there THEN flag this) -> "OKAY (NO MARKER)"
+   - If the obstacle is not centered on the line of its track path (maybe the box slight left or right) -> "OKAY (OBSTACLE NOT CENTERED)"
+   - If none of the above conditions are met, provide a neutral summary: "OKAY (OTHER DESCRIPTION)"
 
-Strictness: Be strict but fair. Only judge based on what's visible in the video and specified in the PDF map and rules. Calculate time precisely. Adhere exactly to the JSON format.
+Strictness: Be fair but precise. Only judge based on what's visible in the video and what's outlined in the PDF map and rules. Calculate the time accurately and adhere strictly to the JSON format."
 `;
 
 function ResultEditor({ result, setResult, onSave, saving }: {
@@ -171,6 +169,8 @@ export default function Home() {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [model, setModel] = useState("gemini-2.5-pro-preview-03-25");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [lastModelRendah, setLastModelRendah] = useState<string | null>(null);
+  const [lastModelMenengah, setLastModelMenengah] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -196,13 +196,21 @@ export default function Home() {
     if (!file) {
       setVideo(null);
       setResult("");
-      if (tab === "rendah") setFileNameRendah("");
-      else setFileNameMenengah("");
+      if (tab === "rendah") {
+        setParsedRendah(null);
+      } else {
+        setParsedMenengah(null);
+      }
       return;
     }
     setLoading(true);
     setResult("");
     setVideo(URL.createObjectURL(file));
+    if (tab === "rendah") {
+      setParsedRendah(null);
+    } else {
+      setParsedMenengah(null);
+    }
     if (tab === "rendah") setFileNameRendah(file.name);
     else setFileNameMenengah(file.name);
     try {
@@ -291,6 +299,8 @@ export default function Home() {
         setResult(JSON.stringify(parsed, null, 2));
         if (tab === "rendah") setParsedRendah(parsed);
         else setParsedMenengah(parsed);
+        if (tab === "rendah") setLastModelRendah(usedModel);
+        else setLastModelMenengah(usedModel);
       } catch {
         setResult(result);
         if (tab === "rendah") setParsedRendah(null);
@@ -358,45 +368,6 @@ export default function Home() {
     fetchLeaderboard();
   }, []);
 
-  // Add regenerate handlers
-  function handleRegenerate(tab: "rendah" | "menengah") {
-    if (tab === "rendah" && videoRendah) {
-      handleVideoChange({ target: { files: [dataURLtoFile(videoRendah, fileNameRendah)] } } as any, setVideoRendah, setResultRendah, setLoadingRendah, "rendah");
-    } else if (tab === "menengah" && videoMenengah) {
-      handleVideoChange({ target: { files: [dataURLtoFile(videoMenengah, fileNameMenengah)] } } as any, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah");
-    }
-  }
-
-  // Helper to convert dataURL back to File
-  function dataURLtoFile(dataurl: string, filename: string) {
-    const arr = dataurl.split(",");
-    const mimeMatch = arr[0].match(/:(.*?);/);
-    const mime = mimeMatch ? mimeMatch[1] : "";
-    if (!arr[1]) return new File([], filename, { type: mime });
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) {
-      u8arr[n] = bstr.charCodeAt(n);
-    }
-    return new File([u8arr], filename, { type: mime });
-  }
-
-  // Remove video handlers
-  function handleRemoveVideo(tab: "rendah" | "menengah") {
-    if (tab === "rendah") {
-      setVideoRendah(null);
-      setResultRendah("");
-      setParsedRendah(null);
-      setFileNameRendah("");
-    } else {
-      setVideoMenengah(null);
-      setResultMenengah("");
-      setParsedMenengah(null);
-      setFileNameMenengah("");
-    }
-  }
-
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-start bg-gradient-to-br from-blue-50 via-pink-50 to-yellow-50 p-2 sm:p-6">
       <Toaster />
@@ -451,40 +422,31 @@ export default function Home() {
                 <label className="font-medium">Upload Video</label>
                 <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoRendah, setResultRendah, setLoadingRendah, "rendah")}/>
                 {videoRendah && (
-                  <div className="flex flex-col gap-2">
-                    <video
-                      src={videoRendah}
-                      controls
-                      className="w-full max-h-96 rounded border"
-                    />
-                    <div className="flex gap-2 mt-1">
-                      <button
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-pink-200 hover:bg-pink-300 text-pink-800 font-semibold shadow transition"
-                        onClick={() => handleRegenerate("rendah")}
-                        type="button"
-                      >
-                        <RefreshCw className="w-4 h-4" /> Regenerate
-                      </button>
-                      <button
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold shadow transition"
-                        onClick={() => handleRemoveVideo("rendah")}
-                        type="button"
-                      >
-                        <Trash2 className="w-4 h-4" /> Remove Video
-                      </button>
-                    </div>
-                  </div>
+                  <video
+                    src={videoRendah}
+                    controls
+                    className="w-full max-h-96 rounded border"
+                  />
                 )}
+                <div className="flex items-center gap-2">
+                  <label className="font-medium">AI Result</label>
+                  {lastModelRendah && (
+                    <Badge variant={lastModelRendah === "gemini-2.5-pro-preview-03-25" ? "default" : "secondary"}>
+                      {lastModelRendah === "gemini-2.5-pro-preview-03-25" ? "Pro Model" : "Flash Model (Fallback)"}
+                    </Badge>
+                  )}
+                </div>
                 {loadingRendah && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
                 )}
-                <label className="font-medium">AI Result</label>
-                <ResultEditor
-                  result={parsedRendah}
-                  setResult={setParsedRendah}
-                  onSave={() => saveResult("rendah")}
-                  saving={savingRendah}
-                />
+                {parsedRendah && (
+                  <ResultEditor
+                    result={parsedRendah}
+                    setResult={setParsedRendah}
+                    onSave={() => saveResult("rendah")}
+                    saving={savingRendah}
+                  />
+                )}
                 {!parsedRendah && resultRendah && (
                   <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
                     <b>Raw Output:</b>
@@ -498,40 +460,31 @@ export default function Home() {
                 <label className="font-medium">Upload Video</label>
                 <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah")}/>
                 {videoMenengah && (
-                  <div className="flex flex-col gap-2">
-                    <video
-                      src={videoMenengah}
-                      controls
-                      className="w-full max-h-96 rounded border"
-                    />
-                    <div className="flex gap-2 mt-1">
-                      <button
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-pink-200 hover:bg-pink-300 text-pink-800 font-semibold shadow transition"
-                        onClick={() => handleRegenerate("menengah")}
-                        type="button"
-                      >
-                        <RefreshCw className="w-4 h-4" /> Regenerate
-                      </button>
-                      <button
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold shadow transition"
-                        onClick={() => handleRemoveVideo("menengah")}
-                        type="button"
-                      >
-                        <Trash2 className="w-4 h-4" /> Remove Video
-                      </button>
-                    </div>
-                  </div>
+                  <video
+                    src={videoMenengah}
+                    controls
+                    className="w-full max-h-96 rounded border"
+                  />
                 )}
+                <div className="flex items-center gap-2">
+                  <label className="font-medium">AI Result</label>
+                  {lastModelMenengah && (
+                    <Badge variant={lastModelMenengah === "gemini-2.5-pro-preview-03-25" ? "default" : "secondary"}>
+                      {lastModelMenengah === "gemini-2.5-pro-preview-03-25" ? "Pro Model" : "Flash Model (Fallback)"}
+                    </Badge>
+                  )}
+                </div>
                 {loadingMenengah && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
                 )}
-                <label className="font-medium">AI Result</label>
-                <ResultEditor
-                  result={parsedMenengah}
-                  setResult={setParsedMenengah}
-                  onSave={() => saveResult("menengah")}
-                  saving={savingMenengah}
-                />
+                {parsedMenengah && (
+                  <ResultEditor
+                    result={parsedMenengah}
+                    setResult={setParsedMenengah}
+                    onSave={() => saveResult("menengah")}
+                    saving={savingMenengah}
+                  />
+                )}
                 {!parsedMenengah && resultMenengah && (
                   <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
                     <b>Raw Output:</b>
