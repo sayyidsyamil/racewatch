@@ -2,7 +2,7 @@
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
@@ -62,11 +62,31 @@ Return ONLY a valid JSON object in the following format. Do not include any text
     "total": 4
   },
   "time": {
-    "start": "mm:ss.xx", // timestamp when the robot begins following the path
+    "start": "mm:ss.xx", // timestamp when the robot begins following the path of race just before the timer is being on
     "end": "mm:ss.xx",
     "taken": "ss.xx"
   },
   "comment": "SINGLE LINE COMMENT"
+}
+
+Additionally, return a 'screenshots' object with timestamps (in mm:ss.xx) of the actualy video for the following events:
+- mula: when the robot is at the start (MULA) line and about to start race just before the timer is on
+- checkpoint_1: when the robot reaches checkpoint 1 (time when robot area touch  to the first checkpoint star etc)
+- checkpoint_2: when the robot reaches checkpoint 2
+- checkpoint_3: when the robot reaches checkpoint 3
+- checkpoint_4: when the robot reaches checkpoint 4
+- tamat: when the robot reaches the end (TAMAT)
+- out_of_line: when the robot goes out of line (if applicable only if robot go out of line)
+
+Example:
+"screenshots": {
+  "mula": "00:01.23",
+  "checkpoint_1": "00:10.45",
+  "checkpoint_2": "00:20.12",
+  "checkpoint_3": "00:30.67",
+  "checkpoint_4": "00:40.89",
+  "tamat": "00:50.00",
+  "out_of_line": "00:35.00"
 }
 
 Evaluation Considerations & Comment Logic:
@@ -169,8 +189,12 @@ export default function Home() {
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [model, setModel] = useState("gemini-2.5-pro-preview-03-25");
   const [showApiKey, setShowApiKey] = useState(false);
-  const [lastModelRendah, setLastModelRendah] = useState<string | null>(null);
-  const [lastModelMenengah, setLastModelMenengah] = useState<string | null>(null);
+  const [lastModelRendah, setLastModelRendah] = useState<boolean>(false);
+  const [lastModelMenengah, setLastModelMenengah] = useState<boolean>(false);
+  const videoRendahRef = useRef<HTMLVideoElement>(null);
+  const videoMenengahRef = useRef<HTMLVideoElement>(null);
+  const [screenshotsRendah, setScreenshotsRendah] = useState<{ label: string, dataUrl: string }[]>([]);
+  const [screenshotsMenengah, setScreenshotsMenengah] = useState<{ label: string, dataUrl: string }[]>([]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -215,73 +239,30 @@ export default function Home() {
     else setFileNameMenengah(file.name);
     try {
       const { GoogleGenAI } = await import("@google/genai");
-      let usedModel = "gemini-2.5-pro-preview-03-25";
-      let response;
-      try {
-        const ai = new GoogleGenAI({ apiKey });
-        response = await ai.models.generateContentStream({
-          model: usedModel,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: PROMPT },
-                {
-                  inlineData: {
-                    mimeType: "application/pdf",
-                    data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
-                  },
-                },
-                {
-                  inlineData: {
-                    mimeType: file.type,
-                    data: await toBase64(file).then(base64 => base64.split(",")[1]),
-                  },
-                },
-              ],
-            },
-          ],
-        });
-      } catch (err: any) {
-        let message = err?.message || "Unknown error";
-        if (
-          message.includes("doesn't have a free quota tier") ||
-          message.includes("RESOURCE_EXHAUSTED")
-        ) {
-          // Fallback to Flash for this one request
-          usedModel = "gemini-2.5-flash-preview-04-17";
-          toast({
-            title: "Fallback to Flash",
-            description: "Your API key does not have access to the Pro model. Using Flash model for this request.",
-          });
-          const ai = new GoogleGenAI({ apiKey });
-          response = await ai.models.generateContentStream({
-            model: usedModel,
-            contents: [
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContentStream({
+        model: "gemini-2.5-pro-preview-03-25",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: PROMPT },
               {
-                role: "user",
-                parts: [
-                  { text: PROMPT },
-                  {
-                    inlineData: {
-                      mimeType: "application/pdf",
-                      data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
-                    },
-                  },
-                  {
-                    inlineData: {
-                      mimeType: file.type,
-                      data: await toBase64(file).then(base64 => base64.split(",")[1]),
-                    },
-                  },
-                ],
+                inlineData: {
+                  mimeType: "application/pdf",
+                  data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
+                },
+              },
+              {
+                inlineData: {
+                  mimeType: file.type,
+                  data: await toBase64(file).then(base64 => base64.split(",")[1]),
+                },
               },
             ],
-          });
-        } else {
-          throw err;
-        }
-      }
+          },
+        ],
+      });
       let result = "";
       for await (const chunk of response) {
         result += chunk.text;
@@ -299,8 +280,8 @@ export default function Home() {
         setResult(JSON.stringify(parsed, null, 2));
         if (tab === "rendah") setParsedRendah(parsed);
         else setParsedMenengah(parsed);
-        if (tab === "rendah") setLastModelRendah(usedModel);
-        else setLastModelMenengah(usedModel);
+        if (tab === "rendah") setLastModelRendah(true);
+        else setLastModelMenengah(true);
       } catch {
         setResult(result);
         if (tab === "rendah") setParsedRendah(null);
@@ -320,8 +301,6 @@ export default function Home() {
   async function saveResult(tab: "rendah" | "menengah") {
     const data = tab === "rendah" ? parsedRendah : parsedMenengah;
     const teamName = tab === "rendah" ? fileNameRendah : fileNameMenengah;
-    let modelUsed = "Pro";
-    if (data && data.model && data.model === "gemini-2.5-flash-preview-04-17") modelUsed = "Flash";
     if (!data) return;
     if (tab === "rendah") setSavingRendah(true);
     else setSavingMenengah(true);
@@ -329,7 +308,7 @@ export default function Home() {
       const res = await fetch("/api/save-result", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, teamName, category: tab, modelUsed }),
+        body: JSON.stringify({ ...data, teamName, category: tab }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -368,6 +347,77 @@ export default function Home() {
     fetchLeaderboard();
   }, []);
 
+  // Helper to extract a frame at a given timestamp
+  async function extractScreenshot(videoEl: HTMLVideoElement, timestamp: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const [min, sec] = timestamp.split(":");
+      const [s, ms] = sec.split(".");
+      const time = parseInt(min) * 60 + parseFloat(s + "." + (ms || "0"));
+      const seekAndCapture = () => {
+        videoEl.currentTime = time;
+        videoEl.onseeked = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = videoEl.videoWidth;
+          canvas.height = videoEl.videoHeight;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/png"));
+          } else {
+            reject("No canvas context");
+          }
+        };
+      };
+      if (Math.abs(videoEl.currentTime - time) > 0.01) {
+        seekAndCapture();
+      } else {
+        // Already at the right time
+        const canvas = document.createElement("canvas");
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/png"));
+        } else {
+          reject("No canvas context");
+        }
+      }
+    });
+  }
+
+  // After AI result, extract screenshots if timestamps are present
+  useEffect(() => {
+    async function processScreenshots(parsed: any, videoEl: HTMLVideoElement | null, setScreenshots: (shots: { label: string, dataUrl: string }[]) => void) {
+      if (!parsed || !parsed.screenshots || !videoEl) return;
+      const entries = Object.entries(parsed.screenshots) as [string, string][];
+      const shots: { label: string, dataUrl: string }[] = [];
+      for (const [label, timestamp] of entries) {
+        try {
+          const dataUrl = await extractScreenshot(videoEl, timestamp);
+          shots.push({ label, dataUrl });
+        } catch {}
+      }
+      setScreenshots(shots);
+    }
+    processScreenshots(parsedRendah, videoRendahRef.current, setScreenshotsRendah);
+  }, [parsedRendah, videoRendahRef.current]);
+  useEffect(() => {
+    async function processScreenshots(parsed: any, videoEl: HTMLVideoElement | null, setScreenshots: (shots: { label: string, dataUrl: string }[]) => void) {
+      if (!parsed || !parsed.screenshots || !videoEl) return;
+      const entries = Object.entries(parsed.screenshots) as [string, string][];
+      const shots: { label: string, dataUrl: string }[] = [];
+      for (const [label, timestamp] of entries) {
+        try {
+          const dataUrl = await extractScreenshot(videoEl, timestamp);
+          shots.push({ label, dataUrl });
+        } catch {}
+      }
+      setScreenshots(shots);
+    }
+    processScreenshots(parsedMenengah, videoMenengahRef.current, setScreenshotsMenengah);
+  }, [parsedMenengah, videoMenengahRef.current]);
+
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-start bg-gradient-to-br from-blue-50 via-pink-50 to-yellow-50 p-2 sm:p-6">
       <Toaster />
@@ -405,7 +455,7 @@ export default function Home() {
         <div className="w-full mt-6 mb-2">
           <div className="p-3 bg-gradient-to-r from-pink-100 via-yellow-100 to-blue-100 border border-pink-200 rounded-xl text-pink-700 text-sm font-semibold flex items-center gap-2 shadow-sm">
             <span>💡</span>
-            <span>Pro model is used for all evaluations. If your API key does not have access, the app will fallback to Flash for this request only.</span>
+            <span>Pro model is used for all evaluations. If your API key does not have access, you will see an error.</span>
             <span className="ml-auto text-blue-700 underline cursor-pointer" onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank')}>Get your API key</span>
           </div>
         </div>
@@ -423,6 +473,7 @@ export default function Home() {
                 <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoRendah, setResultRendah, setLoadingRendah, "rendah")}/>
                 {videoRendah && (
                   <video
+                    ref={videoRendahRef}
                     src={videoRendah}
                     controls
                     className="w-full max-h-96 rounded border"
@@ -431,9 +482,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <label className="font-medium">AI Result</label>
                   {lastModelRendah && (
-                    <Badge variant={lastModelRendah === "gemini-2.5-pro-preview-03-25" ? "default" : "secondary"}>
-                      {lastModelRendah === "gemini-2.5-pro-preview-03-25" ? "Pro Model" : "Flash Model (Fallback)"}
-                    </Badge>
+                    <Badge variant="default">Pro Model</Badge>
                   )}
                 </div>
                 {loadingRendah && (
@@ -446,6 +495,16 @@ export default function Home() {
                     onSave={() => saveResult("rendah")}
                     saving={savingRendah}
                   />
+                )}
+                {screenshotsRendah.length > 0 && (
+                  <div className="flex flex-wrap gap-4 mt-4">
+                    {screenshotsRendah.map((shot, idx) => (
+                      <div key={idx} className="flex flex-col items-center">
+                        <img src={shot.dataUrl} alt={shot.label} className="w-32 h-20 object-cover rounded border" />
+                        <span className="text-xs mt-1 font-semibold">{shot.label.replace(/_/g, ' ').toUpperCase()}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {!parsedRendah && resultRendah && (
                   <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
@@ -461,6 +520,7 @@ export default function Home() {
                 <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah")}/>
                 {videoMenengah && (
                   <video
+                    ref={videoMenengahRef}
                     src={videoMenengah}
                     controls
                     className="w-full max-h-96 rounded border"
@@ -469,9 +529,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <label className="font-medium">AI Result</label>
                   {lastModelMenengah && (
-                    <Badge variant={lastModelMenengah === "gemini-2.5-pro-preview-03-25" ? "default" : "secondary"}>
-                      {lastModelMenengah === "gemini-2.5-pro-preview-03-25" ? "Pro Model" : "Flash Model (Fallback)"}
-                    </Badge>
+                    <Badge variant="default">Pro Model</Badge>
                   )}
                 </div>
                 {loadingMenengah && (
@@ -484,6 +542,16 @@ export default function Home() {
                     onSave={() => saveResult("menengah")}
                     saving={savingMenengah}
                   />
+                )}
+                {screenshotsMenengah.length > 0 && (
+                  <div className="flex flex-wrap gap-4 mt-4">
+                    {screenshotsMenengah.map((shot, idx) => (
+                      <div key={idx} className="flex flex-col items-center">
+                        <img src={shot.dataUrl} alt={shot.label} className="w-32 h-20 object-cover rounded border" />
+                        <span className="text-xs mt-1 font-semibold">{shot.label.replace(/_/g, ' ').toUpperCase()}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {!parsedMenengah && resultMenengah && (
                   <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
