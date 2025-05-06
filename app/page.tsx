@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface LeaderboardRow {
   teamName: string;
@@ -227,18 +228,81 @@ export default function Home() {
   const [editingRowData, setEditingRowData] = useState<LeaderboardRow | null>(null);
   const [editingCategory, setEditingCategory] = useState<'rendah' | 'menengah' | null>(null);
 
+  // Authentication State
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const HARDCODED_USERNAME = 'myrc2025';
+  const HARDCODED_PASSWORD = 'steminme2025!';
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedKey = localStorage.getItem("racewatch_apiKey");
       if (savedKey) setApiKey(savedKey);
+      const savedLogin = localStorage.getItem("racewatch_loggedIn");
+      if (savedLogin === "true") {
+        setLoggedIn(true);
+      }
     }
   }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       localStorage.setItem("racewatch_apiKey", apiKey);
+      localStorage.setItem("racewatch_loggedIn", String(loggedIn));
     }
-  }, [apiKey]);
+  }, [apiKey, loggedIn]);
+
+  const handleLogin = () => {
+    if (username === HARDCODED_USERNAME && password === HARDCODED_PASSWORD) {
+      setLoggedIn(true);
+      toast({ title: "Login Successful", description: "Welcome Race Sentinal!" });
+    } else {
+      toast({ title: "Login Failed", description: "Invalid username or password." });
+      setLoggedIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setLoggedIn(false);
+    setApiKey(""); // Clear API key on logout
+    toast({ title: "Logged Out", description: "You have been logged out." });
+  };
+
+  // Helper function to export data to CSV
+  const exportToCsv = (data: LeaderboardRow[], filename: string) => {
+    if (data.length === 0) {
+      toast({ title: "Export", description: "No data to export." });
+      return;
+    }
+
+    const headers = ["#", "Team Name", "Checkpoints Reached", "Checkpoints Total", "Time Taken", "Start Time", "End Time", "Comment"];
+    const csvRows = [];
+
+    csvRows.push(headers.join(',')); // Add headers
+
+    data.forEach((row, index) => {
+      const values = [
+        index + 1, // Row number
+        `"${row.teamName.replace(/"/g, '""')}"`, // Handle commas and quotes in team name
+        row.checkpoint?.reached || 0,
+        row.checkpoint?.total || 4,
+        `"${row.time?.taken || ''}"`, // Handle potential commas/quotes in time
+        `"${row.time?.start || ''}"`, // Handle potential commas/quotes in time
+        `"${row.time?.end || ''}"`, // Handle potential commas/quotes in time
+        `"${row.comment.replace(/"/g, '""')}"`, // Handle commas and quotes in comment
+      ];
+      csvRows.push(values.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   async function handleVideoChange(
     e: React.ChangeEvent<HTMLInputElement>,
@@ -502,233 +566,270 @@ export default function Home() {
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-start bg-gradient-to-br from-blue-50 via-pink-50 to-yellow-50 p-2 sm:p-6">
       <Toaster />
-      <div className="w-full max-w-screen-lg mt-6 mb-4 p-6 rounded-2xl shadow-xl bg-white/80 border border-gray-100 flex flex-col items-center">
-        <h1 className="text-4xl font-extrabold mb-2 text-center text-pink-600 flex items-center gap-2">
-          <span>🏁</span> Race Sentinel
-        </h1>
-        <div className="mb-4 text-gray-700 text-center text-lg font-medium">
-          This website is created for <b>MYRC25</b> as an AI evaluator.<br />
-          Upload your race video and get instant AI-based evaluation and leaderboard.
-        </div>
-        <div className="w-full flex flex-col gap-4">
-          <label className="font-semibold text-gray-800">API Key</label>
-          <div className="flex flex-col gap-2 items-stretch">
-            <div className="relative flex-1">
+      {!loggedIn ? (
+        <Card className="w-full max-w-sm mx-auto mt-20">
+          <CardHeader>
+            <CardTitle className="text-2xl">Login</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="username">Username</Label>
               <Input
-                type={showApiKey ? "text" : "password"}
-                placeholder="Enter your API key"
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                className="w-full pr-10 text-base border-pink-300 focus:border-pink-500 focus:ring-pink-200 rounded-lg shadow-sm"
-                style={{ fontFamily: 'monospace' }}
+                id="username"
+                type="text"
+                placeholder="myrc2025"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
               />
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-pink-400 hover:text-pink-600 transition"
-                tabIndex={-1}
-                onClick={() => setShowApiKey(v => !v)}
-              >
-                {showApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" onClick={handleLogin}>Sign in</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="w-full max-w-screen-lg mt-6 mb-4 p-6 rounded-2xl shadow-xl bg-white/80 border border-gray-100 flex flex-col items-center">
+          <div className="w-full flex justify-between items-center mb-4">
+             <h1 className="text-4xl font-extrabold text-pink-600 flex items-center gap-2">
+              <span>🏁</span> Race Sentinel
+            </h1>
+            <Button variant="outline" onClick={handleLogout}>Logout</Button>
+          </div>
+          <div className="mb-4 text-gray-700 text-center text-lg font-medium">
+            This website is created for <b>MYRC25</b> as an AI evaluator.<br />
+            Upload your race video and get instant AI-based evaluation and leaderboard.
+          </div>
+          <div className="w-full flex flex-col gap-4">
+            <label className="font-semibold text-gray-800">API Key</label>
+            <div className="flex flex-col gap-2 items-stretch">
+              <div className="relative flex-1">
+                <Input
+                  type={showApiKey ? "text" : "password"}
+                  placeholder="Enter your API key"
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  className="w-full pr-10 text-base border-pink-300 focus:border-pink-500 focus:ring-pink-200 rounded-lg shadow-sm"
+                  style={{ fontFamily: 'monospace' }}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-pink-400 hover:text-pink-600 transition"
+                  tabIndex={-1}
+                  onClick={() => setShowApiKey(v => !v)}
+                >
+                  {showApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="w-full mt-6 mb-2">
-          <div className="p-3 bg-gradient-to-r from-pink-100 via-yellow-100 to-blue-100 border border-pink-200 rounded-xl text-pink-700 text-sm font-semibold flex items-center gap-2 shadow-sm">
-            <span>💡</span>
-            <span>Pro model is used for all evaluations. If your API key does not have access, you will see an error.</span>
-            <span className="ml-auto text-blue-700 underline cursor-pointer" onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank')}>Get your API key</span>
+          <div className="w-full mt-6 mb-2">
+            <div className="p-3 bg-gradient-to-r from-pink-100 via-yellow-100 to-blue-100 border border-pink-200 rounded-xl text-pink-700 text-sm font-semibold flex items-center gap-2 shadow-sm">
+              <span>💡</span>
+              <span>Pro model is used for all evaluations. If your API key does not have access, you will see an error.</span>
+              <span className="ml-auto text-blue-700 underline cursor-pointer" onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank')}>Get your API key</span>
+            </div>
+          </div>
+          <div className="w-full border-t border-dashed border-pink-200 my-6"></div>
+          <div className="w-full">
+            <Tabs defaultValue="rendah" className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mb-4 rounded-lg overflow-hidden shadow">
+                <TabsTrigger value="rendah" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Sekolah Rendah</TabsTrigger>
+                <TabsTrigger value="menengah" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Sekolah Menengah</TabsTrigger>
+                <TabsTrigger value="leaderboard" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Leaderboard</TabsTrigger>
+              </TabsList>
+              <TabsContent value="rendah">
+                <div className="flex flex-col gap-4">
+                  <label className="font-medium">Upload Video</label>
+                  <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoRendah, setResultRendah, setLoadingRendah, "rendah")}/>
+                  {videoRendah && (
+                    <video
+                      ref={videoRendahRef}
+                      src={videoRendah}
+                      controls
+                      className="w-full max-h-96 rounded border"
+                    />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <label className="font-medium">AI Result</label>
+                    {lastModelRendah && (
+                      <Badge variant="outline">Pro Model</Badge>
+                    )}
+                  </div>
+                  {loadingRendah && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
+                  )}
+                  {parsedRendah && (
+                    <ResultEditor
+                      result={parsedRendah}
+                      setResult={setParsedRendah}
+                      onSave={() => saveResult("rendah")}
+                      saving={savingRendah}
+                    />
+                  )}
+                  {screenshotsRendah.length > 0 && (
+                    <div className="flex flex-wrap gap-4 mt-4">
+                      {screenshotsRendah.map((shot, idx) => (
+                        <div key={idx} className="flex flex-col items-center">
+                          <img src={shot.dataUrl} alt={shot.label} className="w-32 h-20 object-cover rounded border" />
+                          <span className="text-xs mt-1 font-semibold">{shot.label.replace(/_/g, ' ').toUpperCase()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!parsedRendah && resultRendah && (
+                    <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
+                      <b>Raw Output:</b>
+                      <pre>{resultRendah}</pre>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+              <TabsContent value="menengah">
+                <div className="flex flex-col gap-4">
+                  <label className="font-medium">Upload Video</label>
+                  <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah")}/>
+                  {videoMenengah && (
+                    <video
+                      ref={videoMenengahRef}
+                      src={videoMenengah}
+                      controls
+                      className="w-full max-h-96 rounded border"
+                    />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <label className="font-medium">AI Result</label>
+                    {lastModelMenengah && (
+                      <Badge variant="outline">Pro Model</Badge>
+                    )}
+                  </div>
+                  {loadingMenengah && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
+                  )}
+                  {parsedMenengah && (
+                    <ResultEditor
+                      result={parsedMenengah}
+                      setResult={setParsedMenengah}
+                      onSave={() => saveResult("menengah")}
+                      saving={savingMenengah}
+                    />
+                  )}
+                  {screenshotsMenengah.length > 0 && (
+                    <div className="flex flex-wrap gap-4 mt-4">
+                      {screenshotsMenengah.map((shot, idx) => (
+                        <div key={idx} className="flex flex-col items-center">
+                          <img src={shot.dataUrl} alt={shot.label} className="w-32 h-20 object-cover rounded border" />
+                          <span className="text-xs mt-1 font-semibold">{shot.label.replace(/_/g, ' ').toUpperCase()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!parsedMenengah && resultMenengah && (
+                    <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
+                      <b>Raw Output:</b>
+                      <pre>{resultMenengah}</pre>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+              <TabsContent value="leaderboard">
+                <div className="flex flex-col gap-8">
+                  <div>
+                    <h2 className="font-bold text-lg mb-2">Sekolah Rendah</h2>
+                    <Button variant="outline" className="mb-4" onClick={() => exportToCsv(leaderboardRendah, 'rendah_leaderboard.csv')}>Export Sekolah Rendah Data</Button>
+                    <div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[40px]">#</TableHead>
+                            <TableHead className="w-[120px]">Team Name</TableHead>
+                            <TableHead>Checkpoints</TableHead>
+                            <TableHead>Time Taken</TableHead>
+                            <TableHead>Start</TableHead>
+                            <TableHead>End</TableHead>
+                            <TableHead className="w-auto">Comment</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {leaderboardRendah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="py-1 px-2">{i + 1}</TableCell>
+                              <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
+                              <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
+                              <TableCell className="text-right py-1 px-2">
+                                <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'rendah') as any}>
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-lg mb-2">Sekolah Menengah</h2>
+                    <Button variant="outline" className="mb-4" onClick={() => exportToCsv(leaderboardMenengah, 'menengah_leaderboard.csv')}>Export Sekolah Menengah Data</Button>
+                    <div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[40px]">#</TableHead>
+                            <TableHead className="w-[120px]">Team Name</TableHead>
+                            <TableHead>Checkpoints</TableHead>
+                            <TableHead>Time Taken</TableHead>
+                            <TableHead>Start</TableHead>
+                            <TableHead>End</TableHead>
+                            <TableHead className="w-auto">Comment</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {leaderboardMenengah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(b.time?.taken || "9999") - parseFloat(a.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="py-1 px-2">{i + 1}</TableCell>
+                              <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
+                              <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
+                              <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
+                              <TableCell className="text-right py-1 px-2">
+                                <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'menengah') as any}>
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
-        <div className="w-full border-t border-dashed border-pink-200 my-6"></div>
-        <div className="w-full">
-          <Tabs defaultValue="rendah" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-4 rounded-lg overflow-hidden shadow">
-              <TabsTrigger value="rendah" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Sekolah Rendah</TabsTrigger>
-              <TabsTrigger value="menengah" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Sekolah Menengah</TabsTrigger>
-              <TabsTrigger value="leaderboard" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Leaderboard</TabsTrigger>
-            </TabsList>
-            <TabsContent value="rendah">
-              <div className="flex flex-col gap-4">
-                <label className="font-medium">Upload Video</label>
-                <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoRendah, setResultRendah, setLoadingRendah, "rendah")}/>
-                {videoRendah && (
-                  <video
-                    ref={videoRendahRef}
-                    src={videoRendah}
-                    controls
-                    className="w-full max-h-96 rounded border"
-                  />
-                )}
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">AI Result</label>
-                  {lastModelRendah && (
-                    <Badge variant="outline">Pro Model</Badge>
-                  )}
-                </div>
-                {loadingRendah && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
-                )}
-                {parsedRendah && (
-                  <ResultEditor
-                    result={parsedRendah}
-                    setResult={setParsedRendah}
-                    onSave={() => saveResult("rendah")}
-                    saving={savingRendah}
-                  />
-                )}
-                {screenshotsRendah.length > 0 && (
-                  <div className="flex flex-wrap gap-4 mt-4">
-                    {screenshotsRendah.map((shot, idx) => (
-                      <div key={idx} className="flex flex-col items-center">
-                        <img src={shot.dataUrl} alt={shot.label} className="w-32 h-20 object-cover rounded border" />
-                        <span className="text-xs mt-1 font-semibold">{shot.label.replace(/_/g, ' ').toUpperCase()}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!parsedRendah && resultRendah && (
-                  <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
-                    <b>Raw Output:</b>
-                    <pre>{resultRendah}</pre>
-                  </div>
-                )}
-              </div>
-            </TabsContent>
-            <TabsContent value="menengah">
-              <div className="flex flex-col gap-4">
-                <label className="font-medium">Upload Video</label>
-                <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah")}/>
-                {videoMenengah && (
-                  <video
-                    ref={videoMenengahRef}
-                    src={videoMenengah}
-                    controls
-                    className="w-full max-h-96 rounded border"
-                  />
-                )}
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">AI Result</label>
-                  {lastModelMenengah && (
-                    <Badge variant="outline">Pro Model</Badge>
-                  )}
-                </div>
-                {loadingMenengah && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2"><span className="animate-spin inline-block w-4 h-4 border-2 border-t-transparent border-gray-400 rounded-full"></span>Uploading & Analyzing...</div>
-                )}
-                {parsedMenengah && (
-                  <ResultEditor
-                    result={parsedMenengah}
-                    setResult={setParsedMenengah}
-                    onSave={() => saveResult("menengah")}
-                    saving={savingMenengah}
-                  />
-                )}
-                {screenshotsMenengah.length > 0 && (
-                  <div className="flex flex-wrap gap-4 mt-4">
-                    {screenshotsMenengah.map((shot, idx) => (
-                      <div key={idx} className="flex flex-col items-center">
-                        <img src={shot.dataUrl} alt={shot.label} className="w-32 h-20 object-cover rounded border" />
-                        <span className="text-xs mt-1 font-semibold">{shot.label.replace(/_/g, ' ').toUpperCase()}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!parsedMenengah && resultMenengah && (
-                  <div className="mt-2 p-2 bg-gray-100 rounded text-xs overflow-x-auto max-h-40">
-                    <b>Raw Output:</b>
-                    <pre>{resultMenengah}</pre>
-                  </div>
-                )}
-              </div>
-            </TabsContent>
-            <TabsContent value="leaderboard">
-              <div className="flex flex-col gap-8">
-                <div>
-                  <h2 className="font-bold text-lg mb-2">Sekolah Rendah</h2>
-                  <div>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[40px]">#</TableHead>
-                          <TableHead className="w-[120px]">Team Name</TableHead>
-                          <TableHead>Checkpoints</TableHead>
-                          <TableHead>Time Taken</TableHead>
-                          <TableHead>Start</TableHead>
-                          <TableHead>End</TableHead>
-                          <TableHead className="w-auto">Comment</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {leaderboardRendah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="py-1 px-2">{i + 1}</TableCell>
-                            <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
-                            <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
-                            <TableCell className="text-right py-1 px-2">
-                              <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'rendah') as any}>
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-                <div>
-                  <h2 className="font-bold text-lg mb-2">Sekolah Menengah</h2>
-                  <div>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[40px]">#</TableHead>
-                          <TableHead className="w-[120px]">Team Name</TableHead>
-                          <TableHead>Checkpoints</TableHead>
-                          <TableHead>Time Taken</TableHead>
-                          <TableHead>Start</TableHead>
-                          <TableHead>End</TableHead>
-                          <TableHead className="w-auto">Comment</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {leaderboardMenengah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(b.time?.taken || "9999") - parseFloat(a.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="py-1 px-2">{i + 1}</TableCell>
-                            <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
-                            <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
-                            <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
-                            <TableCell className="text-right py-1 px-2">
-                              <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'menengah') as any}>
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </div>
+      )}
 
       {/* Edit Result Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
