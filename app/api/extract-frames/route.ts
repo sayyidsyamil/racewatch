@@ -1,44 +1,45 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { NextRequest, NextResponse } from 'next/server';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import Busboy from 'busboy';
+// import Busboy from 'busboy'; // Busboy is not needed with NextRequest file handling
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+// export const config = { // config is not needed for bodyParser with NextRequest
+//   api: {
+//     bodyParser: false,
+//   },
+// };
 
-function parseForm(req: NextApiRequest): Promise<{ videoPath: string }> {
-  return new Promise((resolve, reject) => {
-    const busboy = Busboy({ headers: req.headers });
-    let videoPath = '';
-    const tmpdir = os.tmpdir();
-    let fileReceived = false;
-    busboy.on('file', (fieldname: string, file: NodeJS.ReadableStream, filename: string) => {
-      if (fieldname === 'video') {
-        videoPath = path.join(tmpdir, `${Date.now()}_${filename}`);
-        const outStream = fs.createWriteStream(videoPath);
-        file.pipe(outStream);
-        outStream.on('finish', () => {
-          fileReceived = true;
-          resolve({ videoPath });
-        });
-        outStream.on('error', reject);
-      } else {
-        file.resume();
-      }
-    });
-    busboy.on('finish', () => {
-      if (!fileReceived) reject(new Error('No video file uploaded'));
-    });
-    busboy.on('error', reject);
-    req.pipe(busboy);
-  });
-}
+// parseForm function is no longer needed with NextRequest formData()
+// function parseForm(req: NextApiRequest): Promise<{ videoPath: string }> {
+//   return new Promise((resolve, reject) => {
+//     const busboy = Busboy({ headers: req.headers });
+//     let videoPath = '';
+//     const tmpdir = os.tmpdir();
+//     let fileReceived = false;
+//     busboy.on('file', (fieldname: string, file: NodeJS.ReadableStream, filename: string) => {
+//       if (fieldname === 'video') {
+//         videoPath = path.join(tmpdir, `${Date.now()}_${filename}`);
+//         const outStream = fs.createWriteStream(videoPath);
+//         file.pipe(outStream);
+//         outStream.on('finish', () => {
+//           fileReceived = true;
+//           resolve({ videoPath });
+//         });
+//         outStream.on('error', reject);
+//       } else {
+//         file.resume();
+//       }
+//     });
+//     busboy.on('finish', () => {
+//       if (!fileReceived) reject(new Error('No video file uploaded'));
+//     });
+//     busboy.on('error', reject);
+//     req.pipe(busboy);
+//   });
+// }
 
 function extractFrames(videoPath: string, fps = 5, maxFrames = 50): Promise<string[]> {
   return new Promise((resolve, reject) => {
@@ -66,7 +67,7 @@ function extractFrames(videoPath: string, fps = 5, maxFrames = 50): Promise<stri
         fs.rmdirSync(outputDir);
         resolve(frames);
       })
-      .on('error', err => {
+      .on('error', (err: Error) => {
         // Cleanup
         if (fs.existsSync(outputDir)) {
           fs.readdirSync(outputDir).forEach(f => fs.unlinkSync(path.join(outputDir, f)));
@@ -78,17 +79,33 @@ function extractFrames(videoPath: string, fps = 5, maxFrames = 50): Promise<stri
   });
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+// Change to App Router POST handler
+export async function POST(req: NextRequest) {
   try {
-    const { videoPath } = await parseForm(req);
+    // Use req.formData() to handle file uploads in App Router
+    const formData = await req.formData();
+    const videoFile = formData.get('video') as File | null;
+
+    if (!videoFile) {
+      return NextResponse.json({ error: 'No video file uploaded' }, { status: 400 });
+    }
+
+    // Save the uploaded video file to a temporary location
+    const arrayBuffer = await videoFile.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const tmpdir = os.tmpdir();
+    const videoPath = path.join(tmpdir, `${Date.now()}_${videoFile.name}`);
+    fs.writeFileSync(videoPath, buffer);
+
+    // Extract frames
     const frames = await extractFrames(videoPath, 5, 50);
+
+    // Clean up the temporary video file
     fs.unlinkSync(videoPath);
-    return res.status(200).json({ frames });
+
+    return NextResponse.json({ frames });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Failed to extract frames' });
+    console.error('Frame extraction API error:', err);
+    return NextResponse.json({ error: err.message || 'Failed to extract frames' }, { status: 500 });
   }
 } 

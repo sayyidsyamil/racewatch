@@ -3,9 +3,9 @@ import client from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 
 // Handles PUT requests for updating a race result by ID
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, context: { params: { id: string } }) {
   try {
-    const { id } = params;
+    const { id } = context.params;
     const data = await req.json();
     const db = client.db('test'); // Use your database name
     const collection = db.collection('race_results');
@@ -32,9 +32,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // Handles DELETE requests for deleting a race result by ID
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, context: { params: { id: string } }) {
   try {
-    const { id } = params;
+    const { id } = context.params;
     const db = client.db('test'); // Use your database name
     const collection = db.collection('race_results');
 
