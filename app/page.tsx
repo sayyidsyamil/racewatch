@@ -5,8 +5,35 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useState, useEffect, useRef } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/hooks/use-toast";
-import { Eye, EyeOff } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
+import { Badge, BadgeProps } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button, ButtonProps } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+
+interface LeaderboardRow {
+  teamName: string;
+  checkpoint?: { reached: number; total: number };
+  time?: { start: string; end: string; taken: string };
+  comment: string;
+  category: "rendah" | "menengah";
+}
 
 const PDF_MAP = {
   rendah: "/rendah_rule.pdf",
@@ -184,8 +211,8 @@ export default function Home() {
   const [savingMenengah, setSavingMenengah] = useState(false);
   const [fileNameRendah, setFileNameRendah] = useState("");
   const [fileNameMenengah, setFileNameMenengah] = useState("");
-  const [leaderboardRendah, setLeaderboardRendah] = useState<any[]>([]);
-  const [leaderboardMenengah, setLeaderboardMenengah] = useState<any[]>([]);
+  const [leaderboardRendah, setLeaderboardRendah] = useState<LeaderboardRow[]>([]);
+  const [leaderboardMenengah, setLeaderboardMenengah] = useState<LeaderboardRow[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [model, setModel] = useState("gemini-2.5-pro-preview-03-25");
   const [showApiKey, setShowApiKey] = useState(false);
@@ -195,6 +222,10 @@ export default function Home() {
   const videoMenengahRef = useRef<HTMLVideoElement>(null);
   const [screenshotsRendah, setScreenshotsRendah] = useState<{ label: string, dataUrl: string }[]>([]);
   const [screenshotsMenengah, setScreenshotsMenengah] = useState<{ label: string, dataUrl: string }[]>([]);
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingRowData, setEditingRowData] = useState<LeaderboardRow | null>(null);
+  const [editingCategory, setEditingCategory] = useState<'rendah' | 'menengah' | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -418,12 +449,62 @@ export default function Home() {
     processScreenshots(parsedMenengah, videoMenengahRef.current, setScreenshotsMenengah);
   }, [parsedMenengah, videoMenengahRef.current]);
 
+  const handleEditClick = (row: LeaderboardRow, category: 'rendah' | 'menengah') => {
+    setEditingRowData(row);
+    setEditingCategory(category);
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteClick = async (row: LeaderboardRow) => {
+    if (confirm(`Are you sure you want to delete the result for ${row.teamName}?`)) {
+      try {
+        const res = await fetch(`/api/save-result?teamName=${row.teamName}&category=${row.category}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to delete result");
+        }
+        toast({ title: "Success", description: "Result deleted successfully." });
+        fetchLeaderboard(); // Refresh the leaderboard after deletion
+      } catch (err: any) {
+        toast({ title: "Delete Error", description: err?.message || "Unknown error" });
+      }
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    if (!editingRowData || !editingCategory) return;
+
+    try {
+      const res = await fetch('/api/save-result', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingRowData),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to save changes');
+      }
+
+      toast({ title: 'Success', description: 'Changes saved successfully.' });
+      fetchLeaderboard(); // Refresh the leaderboard
+    } catch (err: any) {
+      toast({ title: 'Save Error', description: err?.message || 'Unknown error' });
+    } finally {
+      setIsEditModalOpen(false);
+      setEditingRowData(null);
+      setEditingCategory(null);
+    }
+  };
+
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-start bg-gradient-to-br from-blue-50 via-pink-50 to-yellow-50 p-2 sm:p-6">
       <Toaster />
-      <div className="w-full max-w-2xl mt-6 mb-4 p-6 rounded-2xl shadow-xl bg-white/80 border border-gray-100 flex flex-col items-center">
+      <div className="w-full max-w-screen-lg mt-6 mb-4 p-6 rounded-2xl shadow-xl bg-white/80 border border-gray-100 flex flex-col items-center">
         <h1 className="text-4xl font-extrabold mb-2 text-center text-pink-600 flex items-center gap-2">
-          <span>🏁</span> RaceWatch AI
+          <span>🏁</span> Race Sentinal
         </h1>
         <div className="mb-4 text-gray-700 text-center text-lg font-medium">
           This website is created for <b>MYRC25</b> as an AI evaluator.<br />
@@ -460,7 +541,7 @@ export default function Home() {
           </div>
         </div>
         <div className="w-full border-t border-dashed border-pink-200 my-6"></div>
-        <div className="w-full max-w-2xl">
+        <div className="w-full">
           <Tabs defaultValue="rendah" className="w-full">
             <TabsList className="grid w-full grid-cols-3 mb-4 rounded-lg overflow-hidden shadow">
               <TabsTrigger value="rendah" className="data-[state=active]:bg-pink-100 data-[state=active]:text-pink-700">Sekolah Rendah</TabsTrigger>
@@ -482,7 +563,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <label className="font-medium">AI Result</label>
                   {lastModelRendah && (
-                    <Badge variant="default">Pro Model</Badge>
+                    <Badge variant="outline">Pro Model</Badge>
                   )}
                 </div>
                 {loadingRendah && (
@@ -529,7 +610,7 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <label className="font-medium">AI Result</label>
                   {lastModelMenengah && (
-                    <Badge variant="default">Pro Model</Badge>
+                    <Badge variant="outline">Pro Model</Badge>
                   )}
                 </div>
                 {loadingMenengah && (
@@ -565,60 +646,82 @@ export default function Home() {
               <div className="flex flex-col gap-8">
                 <div>
                   <h2 className="font-bold text-lg mb-2">Sekolah Rendah</h2>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border text-sm">
-                      <thead>
-                        <tr className="bg-muted">
-                          <th className="px-2 py-1 border">Team Name</th>
-                          <th className="px-2 py-1 border">Checkpoints</th>
-                          <th className="px-2 py-1 border">Time Taken</th>
-                          <th className="px-2 py-1 border">Start</th>
-                          <th className="px-2 py-1 border">End</th>
-                          <th className="px-2 py-1 border">Comment</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {leaderboardRendah.sort((a, b) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999")).map((row, i) => (
-                          <tr key={i}>
-                            <td className="px-2 py-1 border">{row.teamName}</td>
-                            <td className="px-2 py-1 border">{row.checkpoint?.reached}/{row.checkpoint?.total}</td>
-                            <td className="px-2 py-1 border">{row.time?.taken}</td>
-                            <td className="px-2 py-1 border">{row.time?.start}</td>
-                            <td className="px-2 py-1 border">{row.time?.end}</td>
-                            <td className="px-2 py-1 border">{row.comment}</td>
-                          </tr>
+                  <div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[40px]">#</TableHead>
+                          <TableHead className="w-[120px]">Team Name</TableHead>
+                          <TableHead>Checkpoints</TableHead>
+                          <TableHead>Time Taken</TableHead>
+                          <TableHead>Start</TableHead>
+                          <TableHead>End</TableHead>
+                          <TableHead className="w-auto">Comment</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {leaderboardRendah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="py-1 px-2">{i + 1}</TableCell>
+                            <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
+                            <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
+                            <TableCell className="text-right py-1 px-2">
+                              <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'rendah') as any}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
                 <div>
                   <h2 className="font-bold text-lg mb-2">Sekolah Menengah</h2>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full border text-sm">
-                      <thead>
-                        <tr className="bg-muted">
-                          <th className="px-2 py-1 border">Team Name</th>
-                          <th className="px-2 py-1 border">Checkpoints</th>
-                          <th className="px-2 py-1 border">Time Taken</th>
-                          <th className="px-2 py-1 border">Start</th>
-                          <th className="px-2 py-1 border">End</th>
-                          <th className="px-2 py-1 border">Comment</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {leaderboardMenengah.sort((a, b) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999")).map((row, i) => (
-                          <tr key={i}>
-                            <td className="px-2 py-1 border">{row.teamName}</td>
-                            <td className="px-2 py-1 border">{row.checkpoint?.reached}/{row.checkpoint?.total}</td>
-                            <td className="px-2 py-1 border">{row.time?.taken}</td>
-                            <td className="px-2 py-1 border">{row.time?.start}</td>
-                            <td className="px-2 py-1 border">{row.time?.end}</td>
-                            <td className="px-2 py-1 border">{row.comment}</td>
-                          </tr>
+                  <div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[40px]">#</TableHead>
+                          <TableHead className="w-[120px]">Team Name</TableHead>
+                          <TableHead>Checkpoints</TableHead>
+                          <TableHead>Time Taken</TableHead>
+                          <TableHead>Start</TableHead>
+                          <TableHead>End</TableHead>
+                          <TableHead className="w-auto">Comment</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {leaderboardMenengah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(b.time?.taken || "9999") - parseFloat(a.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="py-1 px-2">{i + 1}</TableCell>
+                            <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
+                            <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
+                            <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
+                            <TableCell className="text-right py-1 px-2">
+                              <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'menengah') as any}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
               </div>
@@ -626,6 +729,119 @@ export default function Home() {
           </Tabs>
         </div>
       </div>
+
+      {/* Edit Result Modal */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Result</DialogTitle>
+            <DialogDescription>
+              Edit the details for the selected team result.
+            </DialogDescription>
+          </DialogHeader>
+          {editingRowData && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="teamName" className="text-right">
+                  Team Name
+                </Label>
+                <Input
+                  id="teamName"
+                  value={editingRowData.teamName}
+                  onChange={(e) => setEditingRowData({ ...editingRowData, teamName: e.target.value })}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="checkpointReached" className="text-right">
+                  Checkpoints Reached
+                </Label>
+                <Input
+                  id="checkpointReached"
+                  value={editingRowData.checkpoint?.reached || 0}
+                  onChange={(e) => setEditingRowData({
+                    ...editingRowData,
+                    checkpoint: {
+                      ...(editingRowData.checkpoint || {}),
+                      reached: parseInt(e.target.value) || 0
+                    }
+                  })}
+                  className="col-span-3"
+                  type="number"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="startTime" className="text-right">
+                  Start Time
+                </Label>
+                <Input
+                  id="startTime"
+                  value={editingRowData.time?.start || ""}
+                  onChange={(e) => setEditingRowData({
+                    ...editingRowData,
+                    time: {
+                      ...(editingRowData.time || {}),
+                      start: e.target.value
+                    }
+                  })}
+                  className="col-span-3"
+                  placeholder="mm:ss.xx"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="endTime" className="text-right">
+                  End Time
+                </Label>
+                <Input
+                  id="endTime"
+                  value={editingRowData.time?.end || ""}
+                  onChange={(e) => setEditingRowData({
+                    ...editingRowData,
+                    time: {
+                      ...(editingRowData.time || {}),
+                      end: e.target.value
+                    }
+                  })}
+                  className="col-span-3"
+                  placeholder="mm:ss.xx"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="timeTaken" className="text-right">
+                  Time Taken
+                </Label>
+                <Input
+                  id="timeTaken"
+                  value={editingRowData.time?.taken || ""}
+                  onChange={(e) => setEditingRowData({
+                    ...editingRowData,
+                    time: {
+                      ...(editingRowData.time || {}),
+                      taken: e.target.value
+                    }
+                  })}
+                  className="col-span-3"
+                  placeholder="ss.xx"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="comment" className="text-right">
+                  Comment
+                </Label>
+                <Textarea
+                  id="comment"
+                  value={editingRowData.comment || ""}
+                  onChange={(e) => setEditingRowData({ ...editingRowData, comment: e.target.value })}
+                  className="col-span-3"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" onClick={handleSaveChanges}>Save changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

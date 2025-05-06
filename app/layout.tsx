@@ -5,7 +5,7 @@ import "@/styles/globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "🏁 RaceWatch AI – MYRC25 Robot Race Evaluator",
+  title: "🏁 Race Sentinal – MYRC25 Robot Race Evaluator",
   description: "Upload your race video, get instant AI scoring, and see your team on the leaderboard! Built for MYRC25.",
   keywords: [
     "robot race",
