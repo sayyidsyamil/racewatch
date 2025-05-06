@@ -2,7 +2,7 @@
 
 > **RaceWatch AI** is your instant robot race judge! Upload your race video, get AI-powered scoring, and see your team on the leaderboard. Built for MYRC25. 🚗🤖🏆
 
-![RaceWatch AI Logo](./public/logo.png)
+[![RaceWatch AI Logo](./public/logo.png)](https://claude.ai/public/artifacts/2f76ad1c-c904-424c-9972-956d09027429)
 
 ---
 
