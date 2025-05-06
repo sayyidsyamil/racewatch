@@ -5,7 +5,7 @@ import "@/styles/globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "🏁 Race Sentinal – MYRC25 Robot Race Evaluator",
+  title: "🏁 Race Sentinel – MYRC25 Robot Race Evaluator",
   description: "Upload your race video, get instant AI scoring, and see your team on the leaderboard! Built for MYRC25.",
   keywords: [
     "robot race",
@@ -18,19 +18,19 @@ export const metadata: Metadata = {
     "competition",
     "Sekolah Rendah",
     "Sekolah Menengah",
-    "RaceWatch AI",
+    "Race Sentinel",
   ],
   openGraph: {
-    title: "🏁 RaceWatch AI – MYRC25 Robot Race Evaluator",
+    title: "🏁 Race Sentinel – MYRC25 Robot Race Evaluator",
     description: "Upload your race video, get instant AI scoring, and see your team on the leaderboard! Built for MYRC25.",
-    url: "https://racewatchai.vercel.app/",
-    siteName: "RaceWatch AI",
+    url: "https://racesentinel.vercel.app/",
+    siteName: "Race Sentinel",
     images: [
       {
         url: "/og-image.png", // fallback image if no logo
         width: 1200,
         height: 630,
-        alt: "RaceWatch AI Social Preview",
+        alt: "Race Sentinel Social Preview",
       },
     ],
     locale: "en_US",
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "🏁 RaceWatch AI – MYRC25 Robot Race Evaluator",
+    title: "🏁 Race Sentinel – MYRC25 Robot Race Evaluator",
     description: "Upload your race video, get instant AI scoring, and see your team on the leaderboard! Built for MYRC25.",
     images: ["/og-image.png"],
     creator: "@myrc25",

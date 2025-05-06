@@ -55,7 +55,7 @@ async function fetchPdfAsBase64(pdfPath: string): Promise<string> {
   return await toBase64(new File([blob], "map.pdf", { type: "application/pdf" }));
 }
 
-const PROMPT = `"You are RaceWatch AI, a robot race judge tasked with analyzing robot performance based on video and PDF inputs. Your job is to evaluate the race according to the provided rules and track map, paying close attention to accurate time calculation, checkpoint passage rules, and marker verification. Your evaluation should generate specific JSON output for each video example provided.
+const PROMPT = `"You are RaceSentinel AI, a robot race judge tasked with analyzing robot performance based on video and PDF inputs. Your job is to evaluate the race according to the provided rules and track map, paying close attention to accurate time calculation, checkpoint passage rules, and marker verification. Your evaluation should generate specific JSON output for each video example provided.
 
 Evaluation Rules:
 
@@ -504,7 +504,7 @@ export default function Home() {
       <Toaster />
       <div className="w-full max-w-screen-lg mt-6 mb-4 p-6 rounded-2xl shadow-xl bg-white/80 border border-gray-100 flex flex-col items-center">
         <h1 className="text-4xl font-extrabold mb-2 text-center text-pink-600 flex items-center gap-2">
-          <span>🏁</span> Race Sentinal
+          <span>🏁</span> Race Sentinel
         </h1>
         <div className="mb-4 text-gray-700 text-center text-lg font-medium">
           This website is created for <b>MYRC25</b> as an AI evaluator.<br />
