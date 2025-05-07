@@ -5,7 +5,7 @@ import { ObjectId } from 'mongodb';
 export async function POST(req: NextRequest) {
   try {
     const data = await req.json();
-    const db = client.db('test');
+    const db = client.db('racewatch');
     const collection = db.collection('race_results');
     const exists = await collection.findOne({ teamName: data.teamName, category: data.category });
     if (exists) {
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   try {
-    const db = client.db('test');
+    const db = client.db('racewatch');
     const collection = db.collection('race_results');
     const rendah = await collection.find({ category: 'rendah' }).sort({ 'time.taken': 1 }).toArray();
     const menengah = await collection.find({ category: 'menengah' }).sort({ 'time.taken': 1 }).toArray();
@@ -40,7 +40,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing teamName or category' }, { status: 400 });
     }
 
-    const db = client.db('test');
+    const db = client.db('racewatch');
     const collection = db.collection('race_results');
 
     const deleteResult = await collection.deleteOne({ teamName, category });
@@ -64,7 +64,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing _id, teamName, or category in request body' }, { status: 400 });
     }
 
-    const db = client.db('test');
+    const db = client.db('racewatch');
     const collection = db.collection('race_results');
 
     const existingDocument = await collection.findOne({ _id: new ObjectId(_id) });
