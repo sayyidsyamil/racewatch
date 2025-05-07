@@ -38,7 +38,7 @@
 3. **Configure MongoDB:**
    - Copy `.env.local.example` to `.env.local` and set your MongoDB URI:
      ```env
-     MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/racewatch?retryWrites=true&w=majority
+     MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/racesentinel?retryWrites=true&w=majority
      ```
 4. **Run the app:**
    ```sh

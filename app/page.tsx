@@ -215,7 +215,7 @@ export default function Home() {
   const [leaderboardRendah, setLeaderboardRendah] = useState<LeaderboardRow[]>([]);
   const [leaderboardMenengah, setLeaderboardMenengah] = useState<LeaderboardRow[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
-  const [model, setModel] = useState("gemini-2.5-pro-preview-03-25");
+  const [model, setModel] = useState("gemini-2.5-pro-preview-05-06");
   const [showApiKey, setShowApiKey] = useState(false);
   const [lastModelRendah, setLastModelRendah] = useState<boolean>(false);
   const [lastModelMenengah, setLastModelMenengah] = useState<boolean>(false);
@@ -234,6 +234,16 @@ export default function Home() {
   const [password, setPassword] = useState('');
   const HARDCODED_USERNAME = 'myrc2025';
   const HARDCODED_PASSWORD = 'steminme2025!';
+
+  // Add state for video URL and type
+  const [videoRendahUrl, setVideoRendahUrl] = useState("");
+  const [videoMenengahUrl, setVideoMenengahUrl] = useState("");
+  const [videoRendahType, setVideoRendahType] = useState<null | "youtube" | "gdrive" | "direct">(null);
+  const [videoMenengahType, setVideoMenengahType] = useState<null | "youtube" | "gdrive" | "direct">(null);
+
+  // Add state for base64 video
+  const [videoRendahBase64, setVideoRendahBase64] = useState<string | null>(null);
+  const [videoMenengahBase64, setVideoMenengahBase64] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -304,6 +314,117 @@ export default function Home() {
     URL.revokeObjectURL(link.href);
   };
 
+  // Helper: Validate YouTube URL
+  function isYouTubeUrl(url: string) {
+    return /^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/.test(url);
+  }
+  // Helper: Check if YouTube video is public (oEmbed)
+  async function isYouTubePublic(url: string) {
+    try {
+      const videoId = url.includes("youtu.be/")
+        ? url.split("youtu.be/")[1].split(/[?&]/)[0]
+        : new URL(url).searchParams.get("v");
+      if (!videoId) return false;
+      const oembed = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`);
+      return oembed.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // Helper: Get YouTube video title via oEmbed
+  async function fetchYouTubeTitle(url: string): Promise<string | null> {
+    try {
+      const videoId = url.includes("youtu.be/")
+        ? url.split("youtu.be/")[1].split(/[?&]/)[0]
+        : new URL(url).searchParams.get("v");
+      if (!videoId) return null;
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`;
+      const res = await fetch(oembedUrl);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.title || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Helper: Get file name from URL
+  function getFileNameFromUrl(url: string): string {
+    try {
+      const parts = url.split("/");
+      let name = parts[parts.length - 1];
+      if (name.includes("?")) name = name.split("?")[0];
+      return decodeURIComponent(name);
+    } catch {
+      return "Unknown Team";
+    }
+  }
+
+  // Helper: Validate Google Drive URL
+  function isGoogleDriveUrl(url: string) {
+    return /^https?:\/\/(drive\.google\.com\/file\/d\/|drive\.google\.com\/open\?id=)/.test(url);
+  }
+
+  // In handleVideoUrl, allow Google Drive links as valid input
+  async function handleVideoUrl(tab: "rendah" | "menengah") {
+    const url = tab === "rendah" ? videoRendahUrl : videoMenengahUrl;
+    if (!url) return toast({ title: "No URL", description: "Please enter a video URL." });
+    if (isYouTubeUrl(url) || isGoogleDriveUrl(url) || /^https?:\/\/.+\.(mp4|webm|ogg)$/i.test(url)) {
+      try {
+        // For YouTube, fetch title as before
+        let title = url;
+        if (isYouTubeUrl(url)) {
+          try {
+            const videoId = url.includes("youtu.be/")
+              ? url.split("youtu.be/")[1].split(/[?&]/)[0]
+              : new URL(url).searchParams.get("v");
+            if (videoId) {
+              const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`;
+              const res = await fetch(oembedUrl);
+              if (res.ok) {
+                const data = await res.json();
+                if (data.title) title = data.title;
+              }
+            }
+          } catch {}
+        }
+        const res = await fetch("/api/video-to-base64", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.base64) throw new Error(data.error || "Failed to convert video");
+        if (tab === "rendah") {
+          setVideoRendahBase64(data.base64);
+          setVideoRendah(data.base64);
+          setVideoRendahType(isYouTubeUrl(url) ? "youtube" : isGoogleDriveUrl(url) ? "gdrive" : "direct");
+          setFileNameRendah(title);
+        } else {
+          setVideoMenengahBase64(data.base64);
+          setVideoMenengah(data.base64);
+          setVideoMenengahType(isYouTubeUrl(url) ? "youtube" : isGoogleDriveUrl(url) ? "gdrive" : "direct");
+          setFileNameMenengah(title);
+        }
+        toast({ title: "Video Ready", description: "Video loaded as base64." });
+      } catch (e: any) {
+        console.error("Video to base64 error:", e);
+        toast({ title: "Error", description: e?.toString() || "Failed to load video." });
+      }
+    } else {
+      toast({ title: "Invalid URL", description: "Please enter a valid public YouTube, Google Drive, or direct video URL." });
+    }
+    // Reset result
+    if (tab === "rendah") {
+      setResultRendah("");
+      setParsedRendah(null);
+    } else {
+      setResultMenengah("");
+      setParsedMenengah(null);
+    }
+  }
+
   async function handleVideoChange(
     e: React.ChangeEvent<HTMLInputElement>,
     setVideo: (url: string | null) => void,
@@ -317,8 +438,10 @@ export default function Home() {
       setResult("");
       if (tab === "rendah") {
         setParsedRendah(null);
+        setVideoRendahType(null);
       } else {
         setParsedMenengah(null);
+        setVideoMenengahType(null);
       }
       return;
     }
@@ -327,16 +450,18 @@ export default function Home() {
     setVideo(URL.createObjectURL(file));
     if (tab === "rendah") {
       setParsedRendah(null);
+      setVideoRendahType(null);
+      setFileNameRendah(file.name);
     } else {
       setParsedMenengah(null);
+      setVideoMenengahType(null);
+      setFileNameMenengah(file.name);
     }
-    if (tab === "rendah") setFileNameRendah(file.name);
-    else setFileNameMenengah(file.name);
     try {
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContentStream({
-        model: "gemini-2.5-pro-preview-03-25",
+        model: "gemini-2.5-pro-preview-05-06",
         contents: [
           {
             role: "user",
@@ -563,6 +688,92 @@ export default function Home() {
     }
   };
 
+  // Update handleVideoUrlAI to use base64 for YouTube
+  async function handleVideoUrlAI(tab: "rendah" | "menengah") {
+    const urlType = tab === "rendah" ? videoRendahType : videoMenengahType;
+    const base64 = tab === "rendah" ? videoRendahBase64 : videoMenengahBase64;
+    const url = tab === "rendah" ? videoRendah : videoMenengah;
+    if (urlType === "youtube" && !base64) {
+      toast({ title: "No video loaded", description: "Please load a YouTube video first." });
+      return;
+    }
+    if (tab === "rendah") setLoadingRendah(true);
+    else setLoadingMenengah(true);
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      let parts: any[] = [
+        { text: PROMPT },
+        {
+          inlineData: {
+            mimeType: "application/pdf",
+            data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
+          },
+        },
+      ];
+      if (urlType === "youtube" && base64) {
+        parts.push({
+          inlineData: {
+            mimeType: "video/mp4",
+            data: base64.split(",")[1],
+          },
+        });
+      } else if (urlType === "direct") {
+        parts.push({
+          inlineData: {
+            mimeType: "video/mp4",
+            data: undefined, // will not be used, but Gemini expects a part
+          },
+        });
+      }
+      const response = await ai.models.generateContentStream({
+        model: "gemini-2.5-pro-preview-05-06",
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
+      });
+      let result = "";
+      for await (const chunk of response) {
+        result += chunk.text;
+      }
+      try {
+        const jsonMatch = result.match(/{[\s\S]*}/);
+        const cleaned = jsonMatch ? jsonMatch[0] : result
+          .replace(/```json\s*/g, "")
+          .replace(/```/g, "")
+          .trim();
+        const parsed = JSON.parse(cleaned);
+        if (!parsed.checkpoint?.total) {
+          parsed.checkpoint.total = 4;
+        }
+        if (tab === "rendah") {
+          setResultRendah(JSON.stringify(parsed, null, 2));
+          setParsedRendah(parsed);
+          setLastModelRendah(true);
+        } else {
+          setResultMenengah(JSON.stringify(parsed, null, 2));
+          setParsedMenengah(parsed);
+          setLastModelMenengah(true);
+        }
+      } catch {
+        if (tab === "rendah") setResultRendah(result);
+        else setResultMenengah(result);
+        toast({
+          title: "AI Error",
+          description: "Failed to parse AI response. The output may not be valid JSON. Please check the raw output below or try regenerating.",
+        });
+      }
+    } catch (err: any) {
+      let message = err?.message || "Unknown error";
+      toast({ title: "AI Error", description: message });
+    }
+    if (tab === "rendah") setLoadingRendah(false);
+    else setLoadingMenengah(false);
+  }
+
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-start bg-gradient-to-br from-blue-50 via-pink-50 to-yellow-50 p-2 sm:p-6">
       <Toaster />
@@ -650,13 +861,34 @@ export default function Home() {
                 <div className="flex flex-col gap-4">
                   <label className="font-medium">Upload Video</label>
                   <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoRendah, setResultRendah, setLoadingRendah, "rendah")}/>
+                  <div className="flex gap-2 items-center mt-2">
+                    <Input
+                      type="text"
+                      placeholder="Paste YouTube, Google Drive, or direct video URL"
+                      value={videoRendahUrl}
+                      onChange={e => setVideoRendahUrl(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button type="button" variant="outline" onClick={() => handleVideoUrl("rendah")}>Load Video from URL</Button>
+                  </div>
+                  <div className="text-xs text-gray-500">YouTube URL support is in preview. Only public videos are supported.</div>
                   {videoRendah && (
                     <video
                       ref={videoRendahRef}
                       src={videoRendah}
                       controls
                       className="w-full max-h-96 rounded border"
+                      onError={() => {
+                        setVideoRendah(null);
+                        setFileNameRendah("");
+                        toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
+                      }}
                     />
+                  )}
+                  {videoRendah && videoRendahType && (
+                    <Button type="button" className="mt-2" onClick={() => handleVideoUrlAI("rendah")} disabled={loadingRendah}>
+                      {loadingRendah ? "Analyzing..." : "Run AI on Video URL"}
+                    </Button>
                   )}
                   <div className="flex items-center gap-2">
                     <label className="font-medium">AI Result</label>
@@ -697,13 +929,34 @@ export default function Home() {
                 <div className="flex flex-col gap-4">
                   <label className="font-medium">Upload Video</label>
                   <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah")}/>
+                  <div className="flex gap-2 items-center mt-2">
+                    <Input
+                      type="text"
+                      placeholder="Paste YouTube, Google Drive, or direct video URL"
+                      value={videoMenengahUrl}
+                      onChange={e => setVideoMenengahUrl(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button type="button" variant="outline" onClick={() => handleVideoUrl("menengah")}>Load Video from URL</Button>
+                  </div>
+                  <div className="text-xs text-gray-500">YouTube URL support is in preview. Only public videos are supported.</div>
                   {videoMenengah && (
                     <video
                       ref={videoMenengahRef}
                       src={videoMenengah}
                       controls
                       className="w-full max-h-96 rounded border"
+                      onError={() => {
+                        setVideoMenengah(null);
+                        setFileNameMenengah("");
+                        toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
+                      }}
                     />
+                  )}
+                  {videoMenengah && videoMenengahType && (
+                    <Button type="button" className="mt-2" onClick={() => handleVideoUrlAI("menengah")} disabled={loadingMenengah}>
+                      {loadingMenengah ? "Analyzing..." : "Run AI on Video URL"}
+                    </Button>
                   )}
                   <div className="flex items-center gap-2">
                     <label className="font-medium">AI Result</label>
@@ -760,25 +1013,33 @@ export default function Home() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {leaderboardRendah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="py-1 px-2">{i + 1}</TableCell>
-                              <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
-                              <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
-                              <TableCell className="text-right py-1 px-2">
-                                <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'rendah') as any}>
-                                  <Pencil className="h-3 w-3" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {leaderboardRendah
+                            .sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(a.time?.taken || "9999") - parseFloat(b.time?.taken || "9999"))
+                            .map((row: LeaderboardRow, i) => {
+                              if (!row.teamName || !row.category) {
+                                console.warn('Malformed leaderboard row:', row);
+                                return null;
+                              }
+                              return (
+                                <TableRow key={i}>
+                                  <TableCell className="py-1 px-2">{i + 1}</TableCell>
+                                  <TableCell className="font-medium text-xs py-1 px-2">{row.teamName ?? '?'}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached ?? '?'} / {row.checkpoint?.total ?? 4}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.time?.taken ?? ''}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.time?.start ?? ''}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.time?.end ?? ''}</TableCell>
+                                  <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment ?? ''}</TableCell>
+                                  <TableCell className="text-right py-1 px-2">
+                                    <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'rendah') as any}>
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
                         </TableBody>
                       </Table>
                     </div>
@@ -801,25 +1062,33 @@ export default function Home() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {leaderboardMenengah.sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(b.time?.taken || "9999") - parseFloat(a.time?.taken || "9999")).map((row: LeaderboardRow, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="py-1 px-2">{i + 1}</TableCell>
-                              <TableCell className="font-medium text-xs py-1 px-2">{row.teamName}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached}/{row.checkpoint?.total}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.time?.taken}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.time?.start}</TableCell>
-                              <TableCell className="text-xs py-1 px-2">{row.time?.end}</TableCell>
-                              <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment}</TableCell>
-                              <TableCell className="text-right py-1 px-2">
-                                <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'menengah') as any}>
-                                  <Pencil className="h-3 w-3" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {leaderboardMenengah
+                            .sort((a: LeaderboardRow, b: LeaderboardRow) => parseFloat(b.time?.taken || "9999") - parseFloat(a.time?.taken || "9999"))
+                            .map((row: LeaderboardRow, i) => {
+                              if (!row.teamName || !row.category) {
+                                console.warn('Malformed leaderboard row:', row);
+                                return null;
+                              }
+                              return (
+                                <TableRow key={i}>
+                                  <TableCell className="py-1 px-2">{i + 1}</TableCell>
+                                  <TableCell className="font-medium text-xs py-1 px-2">{row.teamName ?? '?'}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached ?? '?'} / {row.checkpoint?.total ?? 4}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.time?.taken ?? ''}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.time?.start ?? ''}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">{row.time?.end ?? ''}</TableCell>
+                                  <TableCell className="whitespace-normal text-xs py-1 px-2">{row.comment ?? ''}</TableCell>
+                                  <TableCell className="text-right py-1 px-2">
+                                    <Button variant="ghost" size="icon" className="mr-0.5 h-5 w-5" onClick={() => handleEditClick(row, 'menengah') as any}>
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-800 h-5 w-5" onClick={() => handleDeleteClick(row) as any}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
                         </TableBody>
                       </Table>
                     </div>
@@ -863,9 +1132,9 @@ export default function Home() {
                   onChange={(e) => setEditingRowData({
                     ...editingRowData,
                     checkpoint: {
-                      ...(editingRowData.checkpoint || {}),
-                      reached: parseInt(e.target.value) || 0
-                    }
+                      reached: parseInt(e.target.value) || 0,
+                      total: editingRowData.checkpoint?.total ?? 4,
+                    },
                   })}
                   className="col-span-3"
                   type="number"
@@ -881,9 +1150,10 @@ export default function Home() {
                   onChange={(e) => setEditingRowData({
                     ...editingRowData,
                     time: {
-                      ...(editingRowData.time || {}),
-                      start: e.target.value
-                    }
+                      start: e.target.value,
+                      end: editingRowData.time?.end ?? "",
+                      taken: editingRowData.time?.taken ?? "",
+                    },
                   })}
                   className="col-span-3"
                   placeholder="mm:ss.xx"
@@ -899,9 +1169,10 @@ export default function Home() {
                   onChange={(e) => setEditingRowData({
                     ...editingRowData,
                     time: {
-                      ...(editingRowData.time || {}),
-                      end: e.target.value
-                    }
+                      start: editingRowData.time?.start ?? "",
+                      end: e.target.value,
+                      taken: editingRowData.time?.taken ?? "",
+                    },
                   })}
                   className="col-span-3"
                   placeholder="mm:ss.xx"
@@ -917,9 +1188,10 @@ export default function Home() {
                   onChange={(e) => setEditingRowData({
                     ...editingRowData,
                     time: {
-                      ...(editingRowData.time || {}),
-                      taken: e.target.value
-                    }
+                      start: editingRowData.time?.start ?? "",
+                      end: editingRowData.time?.end ?? "",
+                      taken: e.target.value,
+                    },
                   })}
                   className="col-span-3"
                   placeholder="ss.xx"

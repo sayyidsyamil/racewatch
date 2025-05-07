@@ -21,7 +21,8 @@
     "next": "latest",
     "react": "^18",
     "react-dom": "^18",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
     "@types/fluent-ffmpeg": "^2.1.27",
