@@ -7,7 +7,7 @@ export async function PUT(req: NextRequest, context: { params: { id: string } })
   try {
     const { id } = context.params;
     const data = await req.json();
-    const db = client.db('racewatch'); // Use your database name
+    const db = client.db('racesentinel'); // Use your database name
     const collection = db.collection('race_results');
 
     // Validate if ObjectId is valid
@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest, context: { params: { id: string } })
 export async function DELETE(req: NextRequest, context: { params: { id: string } }) {
   try {
     const { id } = context.params;
-    const db = client.db('racewatch'); // Use your database name
+    const db = client.db('racesentinel'); // Use your database name
     const collection = db.collection('race_results');
 
     // Validate if ObjectId is valid
