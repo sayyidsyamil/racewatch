@@ -366,13 +366,37 @@ export default function Home() {
     return /^https?:\/\/(drive\.google\.com\/file\/d\/|drive\.google\.com\/open\?id=)/.test(url);
   }
 
+  // Helper: Get Google Drive file name from URL
+  async function fetchGoogleDriveFileName(url: string): Promise<string> {
+    // Try to extract file name from the URL (fallback)
+    const match = url.match(/\/d\/([\w-]+)/);
+    const fileId = match ? match[1] : null;
+    if (fileId) {
+      // Try to fetch file name from Google Drive API (public files only)
+      try {
+        const apiUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name&key=AIzaSyDUMMYKEY`;
+        const res = await fetch(apiUrl);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.name) return data.name;
+        }
+      } catch {}
+      // Fallback: use fileId as name
+      return fileId;
+    }
+    // Fallback: use last part of URL
+    return getFileNameFromUrl(url);
+  }
+
   // In handleVideoUrl, allow Google Drive links as valid input
   async function handleVideoUrl(tab: "rendah" | "menengah") {
     const url = tab === "rendah" ? videoRendahUrl : videoMenengahUrl;
     if (!url) return toast({ title: "No URL", description: "Please enter a video URL." });
+    // Show loading indicator
+    if (tab === "rendah") setLoadingRendah(true);
+    else setLoadingMenengah(true);
     if (isYouTubeUrl(url) || isGoogleDriveUrl(url) || /^https?:\/\/.+\.(mp4|webm|ogg)$/i.test(url)) {
       try {
-        // For YouTube, fetch title as before
         let title = url;
         if (isYouTubeUrl(url)) {
           try {
@@ -388,6 +412,10 @@ export default function Home() {
               }
             }
           } catch {}
+        } else if (isGoogleDriveUrl(url)) {
+          title = url; // Use the full Google Drive link as the team name
+        } else {
+          title = getFileNameFromUrl(url);
         }
         const res = await fetch("/api/video-to-base64", {
           method: "POST",
@@ -411,9 +439,13 @@ export default function Home() {
       } catch (e: any) {
         console.error("Video to base64 error:", e);
         toast({ title: "Error", description: e?.toString() || "Failed to load video." });
+        if (tab === "rendah") setLoadingRendah(false);
+        else setLoadingMenengah(false);
       }
     } else {
       toast({ title: "Invalid URL", description: "Please enter a valid public YouTube, Google Drive, or direct video URL." });
+      if (tab === "rendah") setLoadingRendah(false);
+      else setLoadingMenengah(false);
     }
     // Reset result
     if (tab === "rendah") {
@@ -878,9 +910,11 @@ export default function Home() {
                       src={videoRendah}
                       controls
                       className="w-full max-h-96 rounded border"
+                      onLoadedData={() => setLoadingRendah(false)}
                       onError={() => {
                         setVideoRendah(null);
                         setFileNameRendah("");
+                        setLoadingRendah(false);
                         toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
                       }}
                     />
@@ -946,9 +980,11 @@ export default function Home() {
                       src={videoMenengah}
                       controls
                       className="w-full max-h-96 rounded border"
+                      onLoadedData={() => setLoadingMenengah(false)}
                       onError={() => {
                         setVideoMenengah(null);
                         setFileNameMenengah("");
+                        setLoadingMenengah(false);
                         toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
                       }}
                     />
