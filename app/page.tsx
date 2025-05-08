@@ -948,7 +948,9 @@ export default function Home() {
                     />
                     <Button type="button" variant="outline" onClick={() => handleRendahVideoInput(videoRendahUrl)}>Load Video from URL</Button>
                   </div>
-                  <div className="text-xs text-gray-500">YouTube URL support is in preview. Only public videos are supported.</div>
+                  <div className="text-xs text-pink-600 font-semibold">
+                    Only public, non-age-restricted YouTube videos are supported. If you see a 'Sign in to confirm you are not a bot' error, the video cannot be processed.
+                  </div>
                   {videoRendahLoading && (
                     <LoadingOverlay />
                   )}
@@ -1036,7 +1038,9 @@ export default function Home() {
                     />
                     <Button type="button" variant="outline" onClick={() => handleMenengahVideoInput(videoMenengahUrl)}>Load Video from URL</Button>
                   </div>
-                  <div className="text-xs text-gray-500">YouTube URL support is in preview. Only public videos are supported.</div>
+                  <div className="text-xs text-pink-600 font-semibold">
+                    Only public, non-age-restricted YouTube videos are supported. If you see a 'Sign in to confirm you are not a bot' error, the video cannot be processed.
+                  </div>
                   {videoMenengahLoading && (
                     <LoadingOverlay />
                   )}
