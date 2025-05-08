@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (exists) {
       return NextResponse.json({ success: false, error: 'A result for this team name already exists in this category.' }, { status: 400 });
     }
-    const result = await collection.insertOne({ ...data, createdAt: new Date() });
+    const result = await collection.insertOne({ ...data, link: data.link, createdAt: new Date() });
     return NextResponse.json({ success: true, id: result.insertedId });
   } catch (error) {
     return NextResponse.json({ success: false, error: (error as any)?.message || 'Unknown error' }, { status: 500 });
@@ -87,7 +87,7 @@ export async function PUT(req: NextRequest) {
 
     const updateResult = await collection.updateOne(
       { _id: new ObjectId(_id) },
-      { $set: { teamName, category, ...updatedFields } }
+      { $set: { teamName, category, ...updatedFields, link: data.link } }
     );
 
     if (updateResult.matchedCount === 0) {

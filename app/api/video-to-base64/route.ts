@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import https from 'https';
 import http from 'http';
+import ytdl from '@distube/ytdl-core';
 
 // Detect video type
 function getVideoType(url: string): 'youtube' | 'gdrive' | 'direct' | 'unknown' {
@@ -21,19 +21,6 @@ function getGoogleDriveUsercontentUrl(url: string): string {
   const openId = url.match(/id=([\w-]+)/);
   if (openId) return `https://drive.usercontent.google.com/uc?id=${openId[1]}&export=download`;
   return url;
-}
-
-// Download with yt-dlp (YouTube)
-function downloadWithYtDlp(url: string, filePath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    exec(`yt-dlp -f best -o "${filePath}" "${url}"`, (err, stdout, stderr) => {
-      if (err) {
-        console.error('yt-dlp error:', stderr || err);
-        return reject(stderr || err);
-      }
-      resolve();
-    });
-  });
 }
 
 // Download direct video file with browser-like User-Agent and follow redirects
@@ -89,21 +76,30 @@ export async function POST(req: NextRequest) {
 
   try {
     if (type === 'youtube') {
-      await downloadWithYtDlp(processedUrl, filePath);
+      // Use @distube/ytdl-core to download YouTube video to buffer
+      const buffer = await new Promise<Buffer>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        ytdl(processedUrl, { quality: 'highest' })
+          .on('data', (chunk) => chunks.push(chunk))
+          .on('end', () => resolve(Buffer.concat(chunks)))
+          .on('error', reject);
+      });
+      const base64 = `data:video/mp4;base64,${buffer.toString('base64')}`;
+      return NextResponse.json({ base64 });
     } else if (type === 'direct') {
       await downloadDirect(processedUrl, filePath);
+      const fileBuffer = fs.readFileSync(filePath);
+      // If file is very small, it's likely an error page, not a video
+      if (fileBuffer.length < 100 * 1024) {
+        fs.unlinkSync(filePath);
+        return NextResponse.json({ error: 'Downloaded file is too small. The Google Drive file may not be public or downloadable.' }, { status: 403 });
+      }
+      const base64 = `data:video/mp4;base64,${fileBuffer.toString('base64')}`;
+      fs.unlinkSync(filePath);
+      return NextResponse.json({ base64 });
     } else {
       return NextResponse.json({ error: 'Unsupported video URL' }, { status: 400 });
     }
-    const fileBuffer = fs.readFileSync(filePath);
-    // If file is very small, it's likely an error page, not a video
-    if (fileBuffer.length < 100 * 1024) {
-      fs.unlinkSync(filePath);
-      return NextResponse.json({ error: 'Downloaded file is too small. The Google Drive file may not be public or downloadable.' }, { status: 403 });
-    }
-    const base64 = `data:video/mp4;base64,${fileBuffer.toString('base64')}`;
-    fs.unlinkSync(filePath);
-    return NextResponse.json({ base64 });
   } catch (e: any) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return NextResponse.json({ error: e?.toString() || 'Download or conversion failed' }, { status: 500 });

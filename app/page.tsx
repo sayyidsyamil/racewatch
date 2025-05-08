@@ -34,6 +34,7 @@ interface LeaderboardRow {
   time?: { start: string; end: string; taken: string };
   comment: string;
   category: "rendah" | "menengah";
+  link?: string;
 }
 
 const PDF_MAP: Record<'rendah' | 'menengah', string> = {
@@ -263,6 +264,12 @@ export default function Home() {
   const [videoRendahLoading, setVideoRendahLoading] = useState(false);
   const [videoMenengahLoading, setVideoMenengahLoading] = useState(false);
 
+  // Add state for team name and video link
+  const [teamNameRendah, setTeamNameRendah] = useState("");
+  const [teamNameMenengah, setTeamNameMenengah] = useState("");
+  const [videoRendahOriginalLink, setVideoRendahOriginalLink] = useState("");
+  const [videoMenengahOriginalLink, setVideoMenengahOriginalLink] = useState("");
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedKey = localStorage.getItem("racewatch_apiKey");
@@ -460,6 +467,26 @@ export default function Home() {
     setScreenshotsRendah([]);
     setVideoRendah(null);
     setVideoRendahLoading(true);
+    if (typeof input === 'string') setVideoRendahOriginalLink(input);
+    else if (input instanceof File) setVideoRendahOriginalLink(input.name);
+    // Set default team name if empty
+    if (!teamNameRendah) {
+      if (input instanceof File) setTeamNameRendah(input.name.replace(/\.[^/.]+$/, ""));
+      else if (typeof input === 'string' && isYouTubeUrl(input)) {
+        // Fetch YouTube title
+        const url = input.trim();
+        const videoId = url.includes("youtu.be/")
+          ? url.split("youtu.be/")[1].split(/[?&]/)[0]
+          : new URL(url).searchParams.get("v");
+        if (videoId) {
+          fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`)
+            .then(res => res.json())
+            .then(data => { if (data.title) setTeamNameRendah(data.title); });
+        }
+      } else if (typeof input === 'string' && isGoogleDriveUrl(input)) {
+        setTeamNameRendah(getFileNameFromUrl(input).replace(/\.[^/.]+$/, ""));
+      }
+    }
     loadAndPrepareVideo({
       input,
       setVideoUrl: setVideoRendah,
@@ -478,6 +505,26 @@ export default function Home() {
     setScreenshotsMenengah([]);
     setVideoMenengah(null);
     setVideoMenengahLoading(true);
+    if (typeof input === 'string') setVideoMenengahOriginalLink(input);
+    else if (input instanceof File) setVideoMenengahOriginalLink(input.name);
+    // Set default team name if empty
+    if (!teamNameMenengah) {
+      if (input instanceof File) setTeamNameMenengah(input.name.replace(/\.[^/.]+$/, ""));
+      else if (typeof input === 'string' && isYouTubeUrl(input)) {
+        // Fetch YouTube title
+        const url = input.trim();
+        const videoId = url.includes("youtu.be/")
+          ? url.split("youtu.be/")[1].split(/[?&]/)[0]
+          : new URL(url).searchParams.get("v");
+        if (videoId) {
+          fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`)
+            .then(res => res.json())
+            .then(data => { if (data.title) setTeamNameMenengah(data.title); });
+        }
+      } else if (typeof input === 'string' && isGoogleDriveUrl(input)) {
+        setTeamNameMenengah(getFileNameFromUrl(input).replace(/\.[^/.]+$/, ""));
+      }
+    }
     loadAndPrepareVideo({
       input,
       setVideoUrl: setVideoMenengah,
@@ -620,15 +667,20 @@ export default function Home() {
 
   async function saveResult(tab: "rendah" | "menengah") {
     const data = tab === "rendah" ? parsedRendah : parsedMenengah;
-    const teamName = tab === "rendah" ? fileNameRendah : fileNameMenengah;
+    const teamName = tab === "rendah" ? teamNameRendah : teamNameMenengah;
+    const link = tab === "rendah" ? videoRendahOriginalLink : videoMenengahOriginalLink;
     if (!data) return;
+    if (!teamName || !teamName.trim()) {
+      toast({ title: "Missing Team Name", description: "Please enter a team name before saving.", variant: "destructive" });
+      return;
+    }
     if (tab === "rendah") setSavingRendah(true);
     else setSavingMenengah(true);
     try {
       const res = await fetch("/api/save-result", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, teamName, category: tab }),
+        body: JSON.stringify({ ...data, teamName, link, category: tab }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -873,6 +925,17 @@ export default function Home() {
               </TabsList>
               <TabsContent value="rendah">
                 <div className="flex flex-col gap-4">
+                  <div className="grid w-full max-w-sm items-center gap-1.5">
+                    <Label className="text-base font-semibold text-pink-700">Team Name</Label>
+                    <Input
+                      type="text"
+                      id="teamNameRendah"
+                      placeholder="Enter team name"
+                      value={teamNameRendah}
+                      onChange={e => setTeamNameRendah(e.target.value)}
+                      className="rounded-xl border-pink-300 focus:border-pink-500 focus:ring-pink-200 text-base py-2 px-3 shadow-sm"
+                    />
+                  </div>
                   <label className="font-medium">Upload Video</label>
                   <Input type="file" accept="video/*" onChange={e => { const file = e.target.files?.[0]; if (file) handleRendahVideoInput(file); }}/>
                   <div className="flex gap-2 items-center mt-2">
@@ -950,6 +1013,17 @@ export default function Home() {
               </TabsContent>
               <TabsContent value="menengah">
                 <div className="flex flex-col gap-4">
+                  <div className="grid w-full max-w-sm items-center gap-1.5">
+                    <Label className="text-base font-semibold text-pink-700">Team Name</Label>
+                    <Input
+                      type="text"
+                      id="teamNameMenengah"
+                      placeholder="Enter team name"
+                      value={teamNameMenengah}
+                      onChange={e => setTeamNameMenengah(e.target.value)}
+                      className="rounded-xl border-pink-300 focus:border-pink-500 focus:ring-pink-200 text-base py-2 px-3 shadow-sm"
+                    />
+                  </div>
                   <label className="font-medium">Upload Video</label>
                   <Input type="file" accept="video/*" onChange={e => { const file = e.target.files?.[0]; if (file) handleMenengahVideoInput(file); }}/>
                   <div className="flex gap-2 items-center mt-2">
@@ -1036,6 +1110,7 @@ export default function Home() {
                           <TableRow>
                             <TableHead className="w-[40px]">#</TableHead>
                             <TableHead className="w-[120px]">Team Name</TableHead>
+                            <TableHead className="w-[120px]">Video Link</TableHead>
                             <TableHead>Checkpoints</TableHead>
                             <TableHead>Time Taken</TableHead>
                             <TableHead>Start</TableHead>
@@ -1056,6 +1131,16 @@ export default function Home() {
                                 <TableRow key={i}>
                                   <TableCell className="py-1 px-2">{i + 1}</TableCell>
                                   <TableCell className="font-medium text-xs py-1 px-2">{row.teamName ?? '?'}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">
+                                    {row.link && row.link.startsWith('http') ? (
+                                      <a href={row.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline flex items-center gap-1">
+                                        View Video
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3h7m0 0v7m0-7L10 14m-7 7h7a2 2 0 002-2v-7" /></svg>
+                                      </a>
+                                    ) : (
+                                      row.link ? row.link : <span className="text-gray-400">-</span>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached ?? '?'} / {row.checkpoint?.total ?? 4}</TableCell>
                                   <TableCell className="text-xs py-1 px-2">{row.time?.taken ?? ''}</TableCell>
                                   <TableCell className="text-xs py-1 px-2">{row.time?.start ?? ''}</TableCell>
@@ -1085,6 +1170,7 @@ export default function Home() {
                           <TableRow>
                             <TableHead className="w-[40px]">#</TableHead>
                             <TableHead className="w-[120px]">Team Name</TableHead>
+                            <TableHead className="w-[120px]">Video Link</TableHead>
                             <TableHead>Checkpoints</TableHead>
                             <TableHead>Time Taken</TableHead>
                             <TableHead>Start</TableHead>
@@ -1105,6 +1191,16 @@ export default function Home() {
                                 <TableRow key={i}>
                                   <TableCell className="py-1 px-2">{i + 1}</TableCell>
                                   <TableCell className="font-medium text-xs py-1 px-2">{row.teamName ?? '?'}</TableCell>
+                                  <TableCell className="text-xs py-1 px-2">
+                                    {row.link && row.link.startsWith('http') ? (
+                                      <a href={row.link} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline flex items-center gap-1">
+                                        View Video
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3h7m0 0v7m0-7L10 14m-7 7h7a2 2 0 002-2v-7" /></svg>
+                                      </a>
+                                    ) : (
+                                      row.link ? row.link : <span className="text-gray-400">-</span>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="text-xs py-1 px-2">{row.checkpoint?.reached ?? '?'} / {row.checkpoint?.total ?? 4}</TableCell>
                                   <TableCell className="text-xs py-1 px-2">{row.time?.taken ?? ''}</TableCell>
                                   <TableCell className="text-xs py-1 px-2">{row.time?.start ?? ''}</TableCell>
@@ -1238,6 +1334,16 @@ export default function Home() {
                   value={editingRowData.comment || ""}
                   onChange={(e) => setEditingRowData({ ...editingRowData, comment: e.target.value })}
                   className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="videoLink" className="text-right">Video Link</Label>
+                <Input
+                  id="videoLink"
+                  value={editingRowData.link || ''}
+                  onChange={e => setEditingRowData({ ...editingRowData, link: e.target.value })}
+                  className="col-span-3"
+                  placeholder="Paste video link or file name"
                 />
               </div>
             </div>
