@@ -226,7 +226,6 @@ export default function Home() {
   const [leaderboardRendah, setLeaderboardRendah] = useState<LeaderboardRow[]>([]);
   const [leaderboardMenengah, setLeaderboardMenengah] = useState<LeaderboardRow[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
-  const [model, setModel] = useState("gemini-2.5-pro-preview-05-06");
   const [showApiKey, setShowApiKey] = useState(false);
   const [lastModelRendah, setLastModelRendah] = useState<boolean>(false);
   const [lastModelMenengah, setLastModelMenengah] = useState<boolean>(false);
@@ -337,37 +336,6 @@ export default function Home() {
   function isYouTubeUrl(url: string) {
     return /^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/.test(url);
   }
-  // Helper: Check if YouTube video is public (oEmbed)
-  async function isYouTubePublic(url: string) {
-    try {
-      const videoId = url.includes("youtu.be/")
-        ? url.split("youtu.be/")[1].split(/[?&]/)[0]
-        : new URL(url).searchParams.get("v");
-      if (!videoId) return false;
-      const oembed = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`);
-      return oembed.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  // Helper: Get YouTube video title via oEmbed
-  async function fetchYouTubeTitle(url: string): Promise<string | null> {
-    try {
-      const videoId = url.includes("youtu.be/")
-        ? url.split("youtu.be/")[1].split(/[?&]/)[0]
-        : new URL(url).searchParams.get("v");
-      if (!videoId) return null;
-      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`;
-      const res = await fetch(oembedUrl);
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.title || null;
-    } catch {
-      return null;
-    }
-  }
-
   // Helper: Get file name from URL
   function getFileNameFromUrl(url: string): string {
     try {
@@ -383,28 +351,6 @@ export default function Home() {
   // Helper: Validate Google Drive URL
   function isGoogleDriveUrl(url: string) {
     return /^https?:\/\/(drive\.google\.com\/file\/d\/|drive\.google\.com\/open\?id=)/.test(url);
-  }
-
-  // Helper: Get Google Drive file name from URL
-  async function fetchGoogleDriveFileName(url: string): Promise<string> {
-    // Try to extract file name from the URL (fallback)
-    const match = url.match(/\/d\/([\w-]+)/);
-    const fileId = match ? match[1] : null;
-    if (fileId) {
-      // Try to fetch file name from Google Drive API (public files only)
-      try {
-        const apiUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name&key=AIzaSyDUMMYKEY`;
-        const res = await fetch(apiUrl);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.name) return data.name;
-        }
-      } catch {}
-      // Fallback: use fileId as name
-      return fileId;
-    }
-    // Fallback: use last part of URL
-    return getFileNameFromUrl(url);
   }
 
   // Modular, reusable function to load and prepare video from any source
@@ -665,40 +611,6 @@ export default function Home() {
       setLoading: tab === 'rendah' ? setLoadingRendah : setLoadingMenengah,
       setLastModel: tab === 'rendah' ? setLastModelRendah : setLastModelMenengah,
     });
-  }
-
-  // Update file input handler
-  async function handleVideoChange(
-    e: React.ChangeEvent<HTMLInputElement>,
-    setVideo: (url: string | null) => void,
-    setResult: (result: string) => void,
-    setLoading: (loading: boolean) => void,
-    tab: "rendah" | "menengah"
-  ) {
-    const file = e.target.files?.[0];
-    if (!file) {
-      setVideo(null);
-      setResult("");
-      if (tab === "rendah") {
-        setParsedRendah(null);
-        setVideoRendahType(null);
-      } else {
-        setParsedMenengah(null);
-        setVideoMenengahType(null);
-      }
-      return;
-    }
-    setVideo(URL.createObjectURL(file));
-    if (tab === "rendah") {
-      setParsedRendah(null);
-      setVideoRendahType(null);
-      setFileNameRendah(file.name);
-    } else {
-      setParsedMenengah(null);
-      setVideoMenengahType(null);
-      setFileNameMenengah(file.name);
-    }
-    await handleAnalyze(tab);
   }
 
   // Update video URL AI handler
