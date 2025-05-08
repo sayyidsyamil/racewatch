@@ -36,7 +36,7 @@ interface LeaderboardRow {
   category: "rendah" | "menengah";
 }
 
-const PDF_MAP = {
+const PDF_MAP: Record<'rendah' | 'menengah', string> = {
   rendah: "/rendah_rule.pdf",
   menengah: "/menengah_rule.pdf",
 };
@@ -138,6 +138,8 @@ Evaluation Considerations & Comment Logic:
 Strictness: Be fair but precise. Only judge based on what's visible in the video and what's outlined in the PDF map and rules. Calculate the time accurately and adhere strictly to the JSON format."
 `;
 
+const GEMINI_MODEL = "gemini-2.5-pro-preview-05-06";
+
 function ResultEditor({ result, setResult, onSave, saving }: {
   result: any;
   setResult: (r: any) => void;
@@ -198,6 +200,15 @@ function ResultEditor({ result, setResult, onSave, saving }: {
   );
 }
 
+// Reusable loading overlay component for cleaner markup
+function LoadingOverlay() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-white/70 backdrop-blur-sm z-10 animate-fade-in">
+      <span className="animate-spin inline-block w-10 h-10 border-4 border-t-transparent border-pink-500 rounded-full" />
+    </div>
+  );
+}
+
 export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [resultRendah, setResultRendah] = useState("");
@@ -244,6 +255,14 @@ export default function Home() {
   // Add state for base64 video
   const [videoRendahBase64, setVideoRendahBase64] = useState<string | null>(null);
   const [videoMenengahBase64, setVideoMenengahBase64] = useState<string | null>(null);
+
+  // Add a new state to track if the video is playable
+  const [videoRendahPlayable, setVideoRendahPlayable] = useState(false);
+  const [videoMenengahPlayable, setVideoMenengahPlayable] = useState(false);
+
+  // Add a new state for video loading overlay
+  const [videoRendahLoading, setVideoRendahLoading] = useState(false);
+  const [videoMenengahLoading, setVideoMenengahLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -388,75 +407,267 @@ export default function Home() {
     return getFileNameFromUrl(url);
   }
 
-  // In handleVideoUrl, allow Google Drive links as valid input
-  async function handleVideoUrl(tab: "rendah" | "menengah") {
-    const url = tab === "rendah" ? videoRendahUrl : videoMenengahUrl;
-    if (!url) return toast({ title: "No URL", description: "Please enter a video URL." });
-    // Show loading indicator
-    if (tab === "rendah") setLoadingRendah(true);
-    else setLoadingMenengah(true);
-    if (isYouTubeUrl(url) || isGoogleDriveUrl(url) || /^https?:\/\/.+\.(mp4|webm|ogg)$/i.test(url)) {
-      try {
-        let title = url;
-        if (isYouTubeUrl(url)) {
-          try {
-            const videoId = url.includes("youtu.be/")
-              ? url.split("youtu.be/")[1].split(/[?&]/)[0]
-              : new URL(url).searchParams.get("v");
-            if (videoId) {
-              const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`;
-              const res = await fetch(oembedUrl);
-              if (res.ok) {
-                const data = await res.json();
-                if (data.title) title = data.title;
-              }
-            }
-          } catch {}
-        } else if (isGoogleDriveUrl(url)) {
-          title = url; // Use the full Google Drive link as the team name
-        } else {
-          title = getFileNameFromUrl(url);
-        }
-        const res = await fetch("/api/video-to-base64", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.base64) throw new Error(data.error || "Failed to convert video");
-        if (tab === "rendah") {
-          setVideoRendahBase64(data.base64);
-          setVideoRendah(data.base64);
-          setVideoRendahType(isYouTubeUrl(url) ? "youtube" : isGoogleDriveUrl(url) ? "gdrive" : "direct");
-          setFileNameRendah(title);
-        } else {
-          setVideoMenengahBase64(data.base64);
-          setVideoMenengah(data.base64);
-          setVideoMenengahType(isYouTubeUrl(url) ? "youtube" : isGoogleDriveUrl(url) ? "gdrive" : "direct");
-          setFileNameMenengah(title);
-        }
-        toast({ title: "Video Ready", description: "Video loaded as base64." });
-      } catch (e: any) {
-        console.error("Video to base64 error:", e);
-        toast({ title: "Error", description: e?.toString() || "Failed to load video." });
-        if (tab === "rendah") setLoadingRendah(false);
-        else setLoadingMenengah(false);
-      }
-    } else {
-      toast({ title: "Invalid URL", description: "Please enter a valid public YouTube, Google Drive, or direct video URL." });
-      if (tab === "rendah") setLoadingRendah(false);
-      else setLoadingMenengah(false);
+  // Modular, reusable function to load and prepare video from any source
+  interface LoadAndPrepareVideoOptions {
+    input: File | string;
+    setVideoUrl: (url: string | null) => void;
+    setPlayable: (playable: boolean) => void;
+    setLoading: (loading: boolean) => void;
+    setFileName: (name: string) => void;
+    setVideoType: (type: null | 'youtube' | 'gdrive' | 'direct') => void;
+    setBase64: (base64: string | null) => void;
+    toast: (opts: { title: string; description: string }) => void;
+  }
+  async function loadAndPrepareVideo({
+    input,
+    setVideoUrl,
+    setPlayable,
+    setLoading,
+    setFileName,
+    setVideoType,
+    setBase64,
+    toast,
+  }: LoadAndPrepareVideoOptions) {
+    setPlayable(false);
+    setLoading(true);
+    if (!input) {
+      setVideoUrl(null);
+      setFileName("");
+      setVideoType(null);
+      setBase64(null);
+      setLoading(false);
+      return;
     }
-    // Reset result
-    if (tab === "rendah") {
-      setResultRendah("");
-      setParsedRendah(null);
-    } else {
-      setResultMenengah("");
-      setParsedMenengah(null);
+    if (input instanceof File) {
+      setVideoUrl(URL.createObjectURL(input));
+      setFileName(input.name);
+      setVideoType('direct');
+      setLoading(true);
+      toBase64(input).then(base64 => {
+        setBase64(base64);
+        setLoading(false);
+      });
+      return;
+    }
+    // input is a string (URL)
+    const url = input.trim();
+    if (!url) {
+      setVideoUrl(null);
+      setFileName("");
+      setVideoType(null);
+      setBase64(null);
+      setLoading(false);
+      return;
+    }
+    let type: null | 'youtube' | 'gdrive' | 'direct' = null;
+    let title = url;
+    if (isYouTubeUrl(url)) {
+      type = 'youtube';
+      try {
+        const videoId = url.includes("youtu.be/")
+          ? url.split("youtu.be/")[1].split(/[?&]/)[0]
+          : new URL(url).searchParams.get("v");
+        if (videoId) {
+          const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}`;
+          const res = await fetch(oembedUrl);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.title) title = data.title;
+          }
+        }
+      } catch {}
+    } else if (isGoogleDriveUrl(url)) {
+      type = 'gdrive';
+      title = url;
+    } else if (/^https?:\/\/.+\.(mp4|webm|ogg)$/i.test(url)) {
+      type = 'direct';
+      title = getFileNameFromUrl(url);
+    }
+    try {
+      const res = await fetch("/api/video-to-base64", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.base64) throw new Error(data.error || "Failed to convert video");
+      setVideoUrl(data.base64);
+      setFileName(title);
+      setVideoType(type);
+      setBase64(data.base64);
+      setLoading(false);
+      toast({ title: "Video Ready", description: "Video loaded as base64." });
+    } catch (e: any) {
+      setVideoUrl(null);
+      setFileName("");
+      setVideoType(null);
+      setBase64(null);
+      setLoading(false);
+      toast({ title: "Error", description: e?.toString() || "Failed to load video." });
     }
   }
 
+  // Usage for Sekolah Rendah
+  const handleRendahVideoInput = (input: File | string) => {
+    setResultRendah("");
+    setParsedRendah(null);
+    setScreenshotsRendah([]);
+    setVideoRendah(null);
+    setVideoRendahLoading(true);
+    loadAndPrepareVideo({
+      input,
+      setVideoUrl: setVideoRendah,
+      setPlayable: setVideoRendahPlayable,
+      setLoading: setVideoRendahLoading,
+      setFileName: setFileNameRendah,
+      setVideoType: setVideoRendahType,
+      setBase64: setVideoRendahBase64,
+      toast,
+    });
+  };
+  // Usage for Sekolah Menengah
+  const handleMenengahVideoInput = (input: File | string) => {
+    setResultMenengah("");
+    setParsedMenengah(null);
+    setScreenshotsMenengah([]);
+    setVideoMenengah(null);
+    setVideoMenengahLoading(true);
+    loadAndPrepareVideo({
+      input,
+      setVideoUrl: setVideoMenengah,
+      setPlayable: setVideoMenengahPlayable,
+      setLoading: setVideoMenengahLoading,
+      setFileName: setFileNameMenengah,
+      setVideoType: setVideoMenengahType,
+      setBase64: setVideoMenengahBase64,
+      toast,
+    });
+  };
+
+  // Unified AI analysis function for both file and URL
+  interface AnalyzeVideoWithAIParams {
+    tab: 'rendah' | 'menengah';
+    file?: File | null;
+    base64?: string | null;
+    urlType?: null | 'youtube' | 'gdrive' | 'direct';
+    apiKey: string;
+    setResult: (result: string) => void;
+    setParsed: (parsed: any) => void;
+    setLoading: (loading: boolean) => void;
+    setLastModel: (v: boolean) => void;
+  }
+  async function analyzeVideoWithAI({
+    tab,
+    file,
+    base64,
+    urlType,
+    apiKey,
+    setResult,
+    setParsed,
+    setLoading,
+    setLastModel,
+  }: AnalyzeVideoWithAIParams) {
+    setLoading(true);
+    try {
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const config = { responseMimeType: "application/json" };
+      const parts = [
+        { text: PROMPT },
+        {
+          inlineData: {
+            mimeType: "application/pdf",
+            data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
+          },
+        },
+      ];
+      if (file) {
+        parts.push({
+          inlineData: {
+            mimeType: file.type,
+            data: await toBase64(file).then(base64 => base64.split(",")[1]),
+          },
+        });
+      } else if (base64) {
+        parts.push({
+          inlineData: {
+            mimeType: "video/mp4",
+            data: base64.split(",")[1],
+          },
+        });
+      } else {
+        // No valid video input
+        setLoading(false);
+        toast({ title: "No video loaded", description: "Please upload a video or load a valid video URL first." });
+        return;
+      }
+      const response = await ai.models.generateContentStream({
+        model: GEMINI_MODEL,
+        config,
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
+      });
+      let result = "";
+      for await (const chunk of response) {
+        result += chunk.text;
+      }
+      // Remove any trailing 'undefined' or similar non-JSON text
+      result = result.replace(/undefined+$/g, '').trim();
+      try {
+        const parsed = JSON.parse(result);
+        if (!parsed.checkpoint?.total) {
+          parsed.checkpoint = parsed.checkpoint || {};
+          parsed.checkpoint.total = 4;
+        }
+        setResult(JSON.stringify(parsed, null, 2));
+        setParsed(parsed);
+        setLastModel(true);
+      } catch {
+        setResult(result);
+        setParsed(null);
+        toast({
+          title: "AI Error",
+          description: "Failed to parse AI response. The output may not be valid JSON. Please check the raw output below or try regenerating.",
+        });
+      }
+    } catch (err) {
+      toast({ title: "AI Error", description: (err as any)?.message || "Unknown error" });
+    }
+    setLoading(false);
+  }
+
+  // Update handleAnalyze to always use the video currently loaded in the player
+  async function handleAnalyze(tab: 'rendah' | 'menengah') {
+    let base64: string | null = null;
+    let urlType: null | 'youtube' | 'gdrive' | 'direct' = null;
+    let file: File | null = null;
+    if (tab === 'rendah') {
+      base64 = videoRendahBase64;
+      urlType = videoRendahType;
+      // If the video is a local file, try to get the file from the input (not possible from blob URL, so use base64)
+    } else {
+      base64 = videoMenengahBase64;
+      urlType = videoMenengahType;
+    }
+    // Always use the base64 from the video player (which is set by loadAndPrepareVideo)
+    await analyzeVideoWithAI({
+      tab,
+      file: null, // always null, since we use base64
+      base64,
+      urlType,
+      apiKey,
+      setResult: tab === 'rendah' ? setResultRendah : setResultMenengah,
+      setParsed: tab === 'rendah' ? setParsedRendah : setParsedMenengah,
+      setLoading: tab === 'rendah' ? setLoadingRendah : setLoadingMenengah,
+      setLastModel: tab === 'rendah' ? setLastModelRendah : setLastModelMenengah,
+    });
+  }
+
+  // Update file input handler
   async function handleVideoChange(
     e: React.ChangeEvent<HTMLInputElement>,
     setVideo: (url: string | null) => void,
@@ -477,8 +688,6 @@ export default function Home() {
       }
       return;
     }
-    setLoading(true);
-    setResult("");
     setVideo(URL.createObjectURL(file));
     if (tab === "rendah") {
       setParsedRendah(null);
@@ -489,65 +698,12 @@ export default function Home() {
       setVideoMenengahType(null);
       setFileNameMenengah(file.name);
     }
-    try {
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContentStream({
-        model: "gemini-2.5-pro-preview-05-06",
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: PROMPT },
-              {
-                inlineData: {
-                  mimeType: "application/pdf",
-                  data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
-                },
-              },
-              {
-                inlineData: {
-                  mimeType: file.type,
-                  data: await toBase64(file).then(base64 => base64.split(",")[1]),
-                },
-              },
-            ],
-          },
-        ],
-      });
-      let result = "";
-      for await (const chunk of response) {
-        result += chunk.text;
-      }
-      try {
-        const jsonMatch = result.match(/{[\s\S]*}/);
-        const cleaned = jsonMatch ? jsonMatch[0] : result
-          .replace(/```json\s*/g, "")
-          .replace(/```/g, "")
-          .trim();
-        const parsed = JSON.parse(cleaned);
-        if (!parsed.checkpoint?.total) {
-          parsed.checkpoint.total = 4;
-        }
-        setResult(JSON.stringify(parsed, null, 2));
-        if (tab === "rendah") setParsedRendah(parsed);
-        else setParsedMenengah(parsed);
-        if (tab === "rendah") setLastModelRendah(true);
-        else setLastModelMenengah(true);
-      } catch {
-        setResult(result);
-        if (tab === "rendah") setParsedRendah(null);
-        else setParsedMenengah(null);
-        toast({
-          title: "AI Error",
-          description: "Failed to parse AI response. The output may not be valid JSON. Please check the raw output below or try regenerating.",
-        });
-      }
-    } catch (err: any) {
-      let message = err?.message || "Unknown error";
-      toast({ title: "AI Error", description: message });
-    }
-    setLoading(false);
+    await handleAnalyze(tab);
+  }
+
+  // Update video URL AI handler
+  async function handleAnalyzeUrl(tab: "rendah" | "menengah") {
+    await handleAnalyze(tab);
   }
 
   async function saveResult(tab: "rendah" | "menengah") {
@@ -720,92 +876,6 @@ export default function Home() {
     }
   };
 
-  // Update handleVideoUrlAI to use base64 for YouTube
-  async function handleVideoUrlAI(tab: "rendah" | "menengah") {
-    const urlType = tab === "rendah" ? videoRendahType : videoMenengahType;
-    const base64 = tab === "rendah" ? videoRendahBase64 : videoMenengahBase64;
-    const url = tab === "rendah" ? videoRendah : videoMenengah;
-    if (urlType === "youtube" && !base64) {
-      toast({ title: "No video loaded", description: "Please load a YouTube video first." });
-      return;
-    }
-    if (tab === "rendah") setLoadingRendah(true);
-    else setLoadingMenengah(true);
-    try {
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
-      let parts: any[] = [
-        { text: PROMPT },
-        {
-          inlineData: {
-            mimeType: "application/pdf",
-            data: await fetchPdfAsBase64(PDF_MAP[tab]).then(base64 => base64.split(",")[1]),
-          },
-        },
-      ];
-      if (urlType === "youtube" && base64) {
-        parts.push({
-          inlineData: {
-            mimeType: "video/mp4",
-            data: base64.split(",")[1],
-          },
-        });
-      } else if (urlType === "direct") {
-        parts.push({
-          inlineData: {
-            mimeType: "video/mp4",
-            data: undefined, // will not be used, but Gemini expects a part
-          },
-        });
-      }
-      const response = await ai.models.generateContentStream({
-        model: "gemini-2.5-pro-preview-05-06",
-        contents: [
-          {
-            role: "user",
-            parts,
-          },
-        ],
-      });
-      let result = "";
-      for await (const chunk of response) {
-        result += chunk.text;
-      }
-      try {
-        const jsonMatch = result.match(/{[\s\S]*}/);
-        const cleaned = jsonMatch ? jsonMatch[0] : result
-          .replace(/```json\s*/g, "")
-          .replace(/```/g, "")
-          .trim();
-        const parsed = JSON.parse(cleaned);
-        if (!parsed.checkpoint?.total) {
-          parsed.checkpoint.total = 4;
-        }
-        if (tab === "rendah") {
-          setResultRendah(JSON.stringify(parsed, null, 2));
-          setParsedRendah(parsed);
-          setLastModelRendah(true);
-        } else {
-          setResultMenengah(JSON.stringify(parsed, null, 2));
-          setParsedMenengah(parsed);
-          setLastModelMenengah(true);
-        }
-      } catch {
-        if (tab === "rendah") setResultRendah(result);
-        else setResultMenengah(result);
-        toast({
-          title: "AI Error",
-          description: "Failed to parse AI response. The output may not be valid JSON. Please check the raw output below or try regenerating.",
-        });
-      }
-    } catch (err: any) {
-      let message = err?.message || "Unknown error";
-      toast({ title: "AI Error", description: message });
-    }
-    if (tab === "rendah") setLoadingRendah(false);
-    else setLoadingMenengah(false);
-  }
-
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-start bg-gradient-to-br from-blue-50 via-pink-50 to-yellow-50 p-2 sm:p-6">
       <Toaster />
@@ -892,7 +962,7 @@ export default function Home() {
               <TabsContent value="rendah">
                 <div className="flex flex-col gap-4">
                   <label className="font-medium">Upload Video</label>
-                  <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoRendah, setResultRendah, setLoadingRendah, "rendah")}/>
+                  <Input type="file" accept="video/*" onChange={e => { const file = e.target.files?.[0]; if (file) handleRendahVideoInput(file); }}/>
                   <div className="flex gap-2 items-center mt-2">
                     <Input
                       type="text"
@@ -901,28 +971,35 @@ export default function Home() {
                       onChange={e => setVideoRendahUrl(e.target.value)}
                       className="flex-1"
                     />
-                    <Button type="button" variant="outline" onClick={() => handleVideoUrl("rendah")}>Load Video from URL</Button>
+                    <Button type="button" variant="outline" onClick={() => handleRendahVideoInput(videoRendahUrl)}>Load Video from URL</Button>
                   </div>
                   <div className="text-xs text-gray-500">YouTube URL support is in preview. Only public videos are supported.</div>
-                  {videoRendah && (
-                    <video
-                      ref={videoRendahRef}
-                      src={videoRendah}
-                      controls
-                      className="w-full max-h-96 rounded border"
-                      onLoadedData={() => setLoadingRendah(false)}
-                      onError={() => {
-                        setVideoRendah(null);
-                        setFileNameRendah("");
-                        setLoadingRendah(false);
-                        toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
-                      }}
-                    />
+                  {videoRendahLoading && (
+                    <LoadingOverlay />
                   )}
-                  {videoRendah && videoRendahType && (
-                    <Button type="button" className="mt-2" onClick={() => handleVideoUrlAI("rendah")} disabled={loadingRendah}>
-                      {loadingRendah ? "Analyzing..." : "Run AI on Video URL"}
-                    </Button>
+                  {videoRendah && (
+                    <div className="relative">
+                      <video
+                        ref={videoRendahRef}
+                        src={videoRendah}
+                        controls
+                        className="w-full max-h-96 rounded border"
+                        onLoadedData={() => {
+                          setVideoRendahPlayable(true);
+                          setVideoRendahLoading(false);
+                        }}
+                        onError={() => {
+                          setVideoRendah(null);
+                          setFileNameRendah("");
+                          setVideoRendahPlayable(false);
+                          setVideoRendahLoading(false);
+                          toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
+                        }}
+                      />
+                    </div>
+                  )}
+                  {videoRendahPlayable && (
+                    <Button type="button" className="mt-2" onClick={() => handleAnalyzeUrl("rendah")}>Process with AI</Button>
                   )}
                   <div className="flex items-center gap-2">
                     <label className="font-medium">AI Result</label>
@@ -962,7 +1039,7 @@ export default function Home() {
               <TabsContent value="menengah">
                 <div className="flex flex-col gap-4">
                   <label className="font-medium">Upload Video</label>
-                  <Input type="file" accept="video/*" onChange={e => handleVideoChange(e, setVideoMenengah, setResultMenengah, setLoadingMenengah, "menengah")}/>
+                  <Input type="file" accept="video/*" onChange={e => { const file = e.target.files?.[0]; if (file) handleMenengahVideoInput(file); }}/>
                   <div className="flex gap-2 items-center mt-2">
                     <Input
                       type="text"
@@ -971,28 +1048,35 @@ export default function Home() {
                       onChange={e => setVideoMenengahUrl(e.target.value)}
                       className="flex-1"
                     />
-                    <Button type="button" variant="outline" onClick={() => handleVideoUrl("menengah")}>Load Video from URL</Button>
+                    <Button type="button" variant="outline" onClick={() => handleMenengahVideoInput(videoMenengahUrl)}>Load Video from URL</Button>
                   </div>
                   <div className="text-xs text-gray-500">YouTube URL support is in preview. Only public videos are supported.</div>
-                  {videoMenengah && (
-                    <video
-                      ref={videoMenengahRef}
-                      src={videoMenengah}
-                      controls
-                      className="w-full max-h-96 rounded border"
-                      onLoadedData={() => setLoadingMenengah(false)}
-                      onError={() => {
-                        setVideoMenengah(null);
-                        setFileNameMenengah("");
-                        setLoadingMenengah(false);
-                        toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
-                      }}
-                    />
+                  {videoMenengahLoading && (
+                    <LoadingOverlay />
                   )}
-                  {videoMenengah && videoMenengahType && (
-                    <Button type="button" className="mt-2" onClick={() => handleVideoUrlAI("menengah")} disabled={loadingMenengah}>
-                      {loadingMenengah ? "Analyzing..." : "Run AI on Video URL"}
-                    </Button>
+                  {videoMenengah && (
+                    <div className="relative">
+                      <video
+                        ref={videoMenengahRef}
+                        src={videoMenengah}
+                        controls
+                        className="w-full max-h-96 rounded border"
+                        onLoadedData={() => {
+                          setVideoMenengahPlayable(true);
+                          setVideoMenengahLoading(false);
+                        }}
+                        onError={() => {
+                          setVideoMenengah(null);
+                          setFileNameMenengah("");
+                          setVideoMenengahPlayable(false);
+                          setVideoMenengahLoading(false);
+                          toast({ title: "Video Playback Error", description: "This video could not be loaded. Please use YouTube, Google Drive, or upload the file directly.", duration: 8000 });
+                        }}
+                      />
+                    </div>
+                  )}
+                  {videoMenengahPlayable && (
+                    <Button type="button" className="mt-2" onClick={() => handleAnalyzeUrl("menengah")}>Process with AI</Button>
                   )}
                   <div className="flex items-center gap-2">
                     <label className="font-medium">AI Result</label>
